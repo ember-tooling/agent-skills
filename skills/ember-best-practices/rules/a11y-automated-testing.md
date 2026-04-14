@@ -69,6 +69,14 @@ import { setupGlobalA11yHooks } from 'ember-a11y-testing/test-support';
 setupGlobalA11yHooks(); // Runs on every test automatically
 ```
 
+### Leave All Rules Enabled
+
+Keep the default ember-a11y-testing and axe-core rules turned on. Avoid disabling rules globally or excluding specific rules to bypass failures without a documented remediation plan.
+
+When teams suppress accessibility rules without a time-boxed remediation plan, they hide real defects, accumulate technical debt, and make regressions harder to detect. A skipped rule can allow a serious accessibility defect to ship to production, especially for problems involving forms, keyboard access, focus management, semantics, or ARIA usage.
+
+If you must suppress a rule temporarily, treat it as an exception: document why it is needed, scope it as narrowly as possible, and create follow-up work to restore the rule quickly.
+
 ember-a11y-testing catches issues like missing labels, insufficient color contrast, invalid ARIA, and keyboard navigation problems automatically.
 
 Reference: [ember-a11y-testing](https://github.com/ember-a11y/ember-a11y-testing)
