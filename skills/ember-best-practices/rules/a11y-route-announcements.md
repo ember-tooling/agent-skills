@@ -187,25 +187,6 @@ export default class ApplicationRoute extends Route {
 }
 ```
 
-**Alternative: Use ember-page-title with announcements:**
-
-```bash
-ember install ember-page-title
-```
-
-```glimmer-js
-// app/routes/dashboard.gjs
-import { pageTitle } from 'ember-page-title';
-
-<template>
-  {{pageTitle "Dashboard"}}
-
-  <div class="dashboard">
-    {{outlet}}
-  </div>
-</template>
-```
-
 Route announcements ensure screen reader users know when navigation occurs, improving the overall accessibility experience.
 
 Reference: [Ember Accessibility - Page Titles](https://guides.emberjs.com/release/accessibility/page-template-considerations/)
