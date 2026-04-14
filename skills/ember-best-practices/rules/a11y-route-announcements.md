@@ -19,47 +19,84 @@ export default class Router extends EmberRouter {
 }
 ```
 
-**Correct (using a11y-announcer library - recommended):**
+**Correct (using ember-a11y-refocus library - recommended):**
 
-Use the [a11y-announcer](https://github.com/ember-a11y/a11y-announcer) library for robust route announcements:
+Use the [ember-a11y-refocus](https://github.com/ember-a11y/ember-a11y-refocus) library for robust route announcements, route transition focus management, and a bypass block (aka skip link).
 
 ```bash
-ember install @ember-a11y/a11y-announcer
+pnpm add ember-a11y-refocus
 ```
 
-```javascript
-// app/router.js
-import EmberRouter from '@ember/routing/router';
-import config from './config/environment';
+Or with npm:
 
-export default class Router extends EmberRouter {
-  location = config.locationType;
-  rootURL = config.rootURL;
-}
-
-Router.map(function () {
-  this.route('about');
-  this.route('dashboard');
-  this.route('posts', function () {
-    this.route('post', { path: '/:post_id' });
-  });
-});
+```bash
+npm install ember-a11y-refocus
 ```
 
-The a11y-announcer library automatically handles route announcements. For custom announcements in your routes:
+Use the addon by rendering `NavigationNarrator` in your application layout and ensuring your primary content has `id="main"`.
+
+```handlebars
+{{! app/templates/application.hbs }}
+<header>
+  <NavigationNarrator />
+  {{! other header content }}
+</header>
+
+<main id='main'>
+  {{outlet}}
+</main>
+```
+
+If you are using GJS or GTS, import the component directly:
+
+```glimmer-js
+import { NavigationNarrator } from 'ember-a11y-refocus';
+
+<template>
+  <header>
+    <NavigationNarrator />
+  </header>
+
+  <main id="main">
+    {{outlet}}
+  </main>
+</template>
+```
+
+The addon ships minimal styles for the skip link and navigation message:
 
 ```javascript
-// app/routes/dashboard.js
-import Route from '@ember/routing/route';
-import { service } from '@ember/service';
+// app/app.js or app/app.ts
+import 'ember-a11y-refocus/styles/navigation-narrator.css';
+```
 
-export default class DashboardRoute extends Route {
-  @service announcer;
+If you need to customize which transitions count as a route change, pass a validator function to `NavigationNarrator`:
 
-  afterModel() {
-    this.announcer.announce('Loaded dashboard with latest data');
+```javascript
+// app/controllers/application.js
+import Controller from '@ember/controller';
+import { defaultValidator } from 'ember-a11y-refocus';
+
+export default class ApplicationController extends Controller {
+  myCustomValidator(transition) {
+    if (transition.from?.name === 'special') {
+      return false;
+    }
+
+    return defaultValidator(transition);
   }
 }
+```
+
+```handlebars
+{{! app/templates/application.hbs }}
+<header>
+  <NavigationNarrator @routeChangeValidator={{this.myCustomValidator}} />
+</header>
+
+<main id='main'>
+  {{outlet}}
+</main>
 ```
 
 **Alternative: DIY approach with ARIA live regions:**
