@@ -35,9 +35,7 @@ All form inputs must have associated labels, and validation errors should be ann
     <div>
       <label for="email-input">
         Email Address
-        {{#if this.isEmailRequired}}
-          <span aria-label="required">*</span>
-        {{/if}}
+        <span aria-hidden="true">*</span>
       </label>
 
       <input
