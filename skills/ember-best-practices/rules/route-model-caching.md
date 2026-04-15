@@ -11,8 +11,8 @@ Implement intelligent model caching strategies to reduce redundant API calls and
 
 **Incorrect (always fetches fresh data):**
 
-```glimmer-js
-// app/routes/post.gjs
+```javascript
+// app/routes/post.js
 import Route from '@ember/routing/route';
 import { service } from '@ember/service';
 
@@ -23,21 +23,24 @@ export default class PostRoute extends Route {
     // Always makes API call, even if we just loaded this post
     return this.store.request({ url: `/posts/${params.post_id}` });
   }
-
-  <template>
-    <article>
-      <h1>{{@model.title}}</h1>
-      <div>{{@model.content}}</div>
-    </article>
-    {{outlet}}
-  </template>
 }
+```
+
+```glimmer-js
+// app/templates/post.gjs
+<template>
+  <article>
+    <h1>{{@model.title}}</h1>
+    <div>{{@model.content}}</div>
+  </article>
+  {{outlet}}
+</template>
 ```
 
 **Correct (with smart caching):**
 
-```glimmer-js
-// app/routes/post.gjs
+```javascript
+// app/routes/post.js
 import Route from '@ember/routing/route';
 import { service } from '@ember/service';
 
@@ -68,15 +71,18 @@ export default class PostRoute extends Route {
     const fiveMinutes = 5 * 60 * 1000;
     return Date.now() - cacheTime < fiveMinutes;
   }
-
-  <template>
-    <article>
-      <h1>{{@model.title}}</h1>
-      <div>{{@model.content}}</div>
-    </article>
-    {{outlet}}
-  </template>
 }
+```
+
+```glimmer-js
+// app/templates/post.gjs
+<template>
+  <article>
+    <h1>{{@model.title}}</h1>
+    <div>{{@model.content}}</div>
+  </article>
+  {{outlet}}
+</template>
 ```
 
 **Service-based caching layer:**
@@ -123,8 +129,8 @@ export default class PostCacheService extends Service {
 }
 ```
 
-```glimmer-js
-// app/routes/post.gjs
+```javascript
+// app/routes/post.js
 import Route from '@ember/routing/route';
 import { service } from '@ember/service';
 
@@ -141,21 +147,24 @@ export default class PostRoute extends Route {
     const params = this.paramsFor('post');
     await this.postCache.getPost(params.post_id, { forceRefresh: true });
   }
-
-  <template>
-    <article>
-      <h1>{{@model.title}}</h1>
-      <div>{{@model.content}}</div>
-    </article>
-    {{outlet}}
-  </template>
 }
+```
+
+```glimmer-js
+// app/templates/post.gjs
+<template>
+  <article>
+    <h1>{{@model.title}}</h1>
+    <div>{{@model.content}}</div>
+  </article>
+  {{outlet}}
+</template>
 ```
 
 **Using query params for cache control:**
 
-```glimmer-js
-// app/routes/posts.gjs
+```javascript
+// app/routes/posts.js
 import Route from '@ember/routing/route';
 import { service } from '@ember/service';
 
@@ -174,28 +183,31 @@ export default class PostsRoute extends Route {
       options,
     });
   }
-
-  <template>
-    <div class="posts">
-      <button {{on "click" (fn this.refresh)}}>
-        Refresh
-      </button>
-
-      <ul>
-        {{#each @model as |post|}}
-          <li>{{post.title}}</li>
-        {{/each}}
-      </ul>
-    </div>
-    {{outlet}}
-  </template>
 }
+```
+
+```glimmer-js
+// app/templates/posts.gjs
+<template>
+  <div class="posts">
+    <button {{on "click" (fn this.refresh)}}>
+      Refresh
+    </button>
+
+    <ul>
+      {{#each @model as |post|}}
+        <li>{{post.title}}</li>
+      {{/each}}
+    </ul>
+  </div>
+  {{outlet}}
+</template>
 ```
 
 **Background refresh pattern:**
 
-```glimmer-js
-// app/routes/dashboard.gjs
+```javascript
+// app/routes/dashboard.js
 import Route from '@ember/routing/route';
 import { service } from '@ember/service';
 
@@ -214,15 +226,18 @@ export default class DashboardRoute extends Route {
 
     return cached || this.store.request({ url: '/dashboard' });
   }
-
-  <template>
-    <div class="dashboard">
-      <h1>Dashboard</h1>
-      <div>Stats: {{@model.stats}}</div>
-    </div>
-    {{outlet}}
-  </template>
 }
+```
+
+```glimmer-js
+// app/templates/dashboard.gjs
+<template>
+  <div class="dashboard">
+    <h1>Dashboard</h1>
+    <div>Stats: {{@model.stats}}</div>
+  </div>
+  {{outlet}}
+</template>
 ```
 
 Smart caching reduces server load, improves perceived performance, and provides better offline support while keeping data fresh.

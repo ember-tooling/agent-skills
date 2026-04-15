@@ -9,6 +9,10 @@ export interface CodeExample {
   description?: string; // Optional description before code
   code: string;
   language?: string; // Default: 'typescript' or 'tsx'
+  codeBlocks?: Array<{
+    code: string;
+    language?: string;
+  }>;
   additionalText?: string; // Optional text after code block (explanations, reasons)
 }
 

@@ -119,6 +119,10 @@ export async function parseRuleFile(filePath: string): Promise<RuleFile> {
     description?: string;
     code: string;
     language?: string;
+    codeBlocks?: Array<{
+      code: string;
+      language?: string;
+    }>;
     additionalText?: string;
   } | null = null;
   let inCodeBlock = false;
@@ -146,8 +150,14 @@ export async function parseRuleFile(filePath: string): Promise<RuleFile> {
       if (inCodeBlock) {
         // End of code block
         if (currentExample) {
-          currentExample.code = codeBlockContent.join('\n');
-          currentExample.language = codeBlockLanguage;
+          const code = codeBlockContent.join('\n');
+          currentExample.codeBlocks ??= [];
+          currentExample.codeBlocks.push({
+            code,
+            language: codeBlockLanguage,
+          });
+          currentExample.code = currentExample.codeBlocks.map((block) => block.code).join('\n\n');
+          currentExample.language = currentExample.codeBlocks[0]?.language ?? codeBlockLanguage;
         }
         codeBlockContent = [];
         inCodeBlock = false;
