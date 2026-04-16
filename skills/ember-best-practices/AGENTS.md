@@ -24,8 +24,8 @@ Comprehensive performance optimization and accessibility guide for Ember.js appl
    - 1.1 [Implement Smart Route Model Caching](#11-implement-smart-route-model-caching)
    - 1.2 [Parallel Data Loading in Model Hooks](#12-parallel-data-loading-in-model-hooks)
    - 1.3 [Use Loading Substates for Better UX](#13-use-loading-substates-for-better-ux)
-   - 1.4 [Use Route Templates with Co-located Syntax](#14-use-route-templates-with-co-located-syntax)
-   - 1.5 [Use Route-Based Code Splitting](#15-use-route-based-code-splitting)
+   - 1.4 [Use Route-Based Code Splitting](#14-use-route-based-code-splitting)
+   - 1.5 [Use Separate Route and Template Files](#15-use-separate-route-and-template-files)
 2. [Build and Bundle Optimization](#2-build-and-bundle-optimization) — **CRITICAL**
    - 2.1 [Avoid Importing Entire Addon Namespaces](#21-avoid-importing-entire-addon-namespaces)
    - 2.2 [Lazy Load Heavy Dependencies](#22-lazy-load-heavy-dependencies)
@@ -105,8 +105,8 @@ Implement intelligent model caching strategies to reduce redundant API calls and
 
 **Incorrect: always fetches fresh data**
 
-```glimmer-js
-// app/routes/post.gjs
+```javascript
+// app/routes/post.js
 import Route from '@ember/routing/route';
 import { service } from '@ember/service';
 
@@ -117,21 +117,24 @@ export default class PostRoute extends Route {
     // Always makes API call, even if we just loaded this post
     return this.store.request({ url: `/posts/${params.post_id}` });
   }
-
-  <template>
-    <article>
-      <h1>{{@model.title}}</h1>
-      <div>{{@model.content}}</div>
-    </article>
-    {{outlet}}
-  </template>
 }
+```
+
+```glimmer-js
+// app/templates/post.gjs
+<template>
+  <article>
+    <h1>{{@model.title}}</h1>
+    <div>{{@model.content}}</div>
+  </article>
+  {{outlet}}
+</template>
 ```
 
 **Correct: with smart caching**
 
-```glimmer-js
-// app/routes/post.gjs
+```javascript
+// app/routes/post.js
 import Route from '@ember/routing/route';
 import { service } from '@ember/service';
 
@@ -162,21 +165,66 @@ export default class PostRoute extends Route {
     const fiveMinutes = 5 * 60 * 1000;
     return Date.now() - cacheTime < fiveMinutes;
   }
-
-  <template>
-    <article>
-      <h1>{{@model.title}}</h1>
-      <div>{{@model.content}}</div>
-    </article>
-    {{outlet}}
-  </template>
 }
+```
+
+```glimmer-js
+// app/templates/post.gjs
+<template>
+  <article>
+    <h1>{{@model.title}}</h1>
+    <div>{{@model.content}}</div>
+  </article>
+  {{outlet}}
+</template>
 ```
 
 **Service-based caching layer:**
 
-```glimmer-js
-// app/routes/post.gjs
+```javascript
+// app/services/post-cache.js
+import Service from '@ember/service';
+import { service } from '@ember/service';
+import { TrackedMap } from 'tracked-built-ins';
+
+export default class PostCacheService extends Service {
+  @service store;
+
+  cache = new TrackedMap();
+  cacheTimes = new Map();
+  cacheTimeout = 5 * 60 * 1000; // 5 minutes
+
+  async getPost(id, { forceRefresh = false } = {}) {
+    const now = Date.now();
+    const cacheTime = this.cacheTimes.get(id) || 0;
+    const isFresh = now - cacheTime < this.cacheTimeout;
+
+    if (!forceRefresh && isFresh && this.cache.has(id)) {
+      return this.cache.get(id);
+    }
+
+    const post = await this.store.request({ url: `/posts/${id}` });
+
+    this.cache.set(id, post);
+    this.cacheTimes.set(id, now);
+
+    return post;
+  }
+
+  invalidate(id) {
+    this.cache.delete(id);
+    this.cacheTimes.delete(id);
+  }
+
+  invalidateAll() {
+    this.cache.clear();
+    this.cacheTimes.clear();
+  }
+}
+```
+
+```javascript
+// app/routes/post.js
 import Route from '@ember/routing/route';
 import { service } from '@ember/service';
 
@@ -193,21 +241,24 @@ export default class PostRoute extends Route {
     const params = this.paramsFor('post');
     await this.postCache.getPost(params.post_id, { forceRefresh: true });
   }
-
-  <template>
-    <article>
-      <h1>{{@model.title}}</h1>
-      <div>{{@model.content}}</div>
-    </article>
-    {{outlet}}
-  </template>
 }
+```
+
+```glimmer-js
+// app/templates/post.gjs
+<template>
+  <article>
+    <h1>{{@model.title}}</h1>
+    <div>{{@model.content}}</div>
+  </article>
+  {{outlet}}
+</template>
 ```
 
 **Using query params for cache control:**
 
-```glimmer-js
-// app/routes/posts.gjs
+```javascript
+// app/routes/posts.js
 import Route from '@ember/routing/route';
 import { service } from '@ember/service';
 
@@ -226,28 +277,31 @@ export default class PostsRoute extends Route {
       options,
     });
   }
-
-  <template>
-    <div class="posts">
-      <button {{on "click" (fn this.refresh)}}>
-        Refresh
-      </button>
-
-      <ul>
-        {{#each @model as |post|}}
-          <li>{{post.title}}</li>
-        {{/each}}
-      </ul>
-    </div>
-    {{outlet}}
-  </template>
 }
+```
+
+```glimmer-js
+// app/templates/posts.gjs
+<template>
+  <div class="posts">
+    <button {{on "click" (fn this.refresh)}}>
+      Refresh
+    </button>
+
+    <ul>
+      {{#each @model as |post|}}
+        <li>{{post.title}}</li>
+      {{/each}}
+    </ul>
+  </div>
+  {{outlet}}
+</template>
 ```
 
 **Background refresh pattern:**
 
-```glimmer-js
-// app/routes/dashboard.gjs
+```javascript
+// app/routes/dashboard.js
 import Route from '@ember/routing/route';
 import { service } from '@ember/service';
 
@@ -266,15 +320,18 @@ export default class DashboardRoute extends Route {
 
     return cached || this.store.request({ url: '/dashboard' });
   }
-
-  <template>
-    <div class="dashboard">
-      <h1>Dashboard</h1>
-      <div>Stats: {{@model.stats}}</div>
-    </div>
-    {{outlet}}
-  </template>
 }
+```
+
+```glimmer-js
+// app/templates/dashboard.gjs
+<template>
+  <div class="dashboard">
+    <h1>Dashboard</h1>
+    <div>Stats: {{@model.stats}}</div>
+  </div>
+  {{outlet}}
+</template>
 ```
 
 Smart caching reduces server load, improves perceived performance, and provides better offline support while keeping data fresh.
@@ -351,6 +408,18 @@ export default class PostsRoute extends Route {
 
 **Correct: with loading substate**
 
+```glimmer-js
+// app/routes/posts-loading.gjs
+import { LoadingSpinner } from './loading-spinner';
+
+<template>
+  <div class="loading-spinner" role="status" aria-live="polite">
+    <span class="sr-only">Loading posts...</span>
+    <LoadingSpinner />
+  </div>
+</template>
+```
+
 ```javascript
 // app/routes/posts.js
 export default class PostsRoute extends Route {
@@ -363,108 +432,7 @@ export default class PostsRoute extends Route {
 
 Ember automatically renders `{route-name}-loading` route templates while the model promise resolves, providing better UX without extra code.
 
-### 1.4 Use Route Templates with Co-located Syntax
-
-**Impact: MEDIUM-HIGH (Better code organization and maintainability)**
-
-Use co-located route templates with modern gjs syntax for better organization and maintainability.
-
-**Incorrect: separate template file - old pattern**
-
-```glimmer-js
-// app/routes/posts.js (separate file)
-import Route from '@ember/routing/route';
-
-export default class PostsRoute extends Route {
-  model() {
-    return this.store.request({ url: '/posts' });
-  }
-}
-
-// app/templates/posts.gjs (separate template file)
-<template>
-  <h1>Posts</h1>
-  <ul>
-    {{#each @model as |post|}}
-      <li>{{post.title}}</li>
-    {{/each}}
-  </ul>
-</template>
-```
-
-**Correct: co-located route template**
-
-```glimmer-js
-// app/routes/posts.gjs
-import Route from '@ember/routing/route';
-
-export default class PostsRoute extends Route {
-  model() {
-    return this.store.request({ url: '/posts' });
-  }
-
-  <template>
-    <h1>Posts</h1>
-    <ul>
-      {{#each @model as |post|}}
-        <li>{{post.title}}</li>
-      {{/each}}
-    </ul>
-
-    {{outlet}}
-  </template>
-}
-```
-
-**With loading and error states:**
-
-```glimmer-js
-// app/routes/posts.gjs
-import Route from '@ember/routing/route';
-import { service } from '@ember/service';
-
-export default class PostsRoute extends Route {
-  @service store;
-
-  model() {
-    return this.store.request({ url: '/posts' });
-  }
-
-  <template>
-    <div class="posts-page">
-      <h1>Posts</h1>
-
-      {{#if @model}}
-        <ul>
-          {{#each @model as |post|}}
-            <li>{{post.title}}</li>
-          {{/each}}
-        </ul>
-      {{/if}}
-
-      {{outlet}}
-    </div>
-  </template>
-}
-```
-
-**Template-only routes:**
-
-```glimmer-js
-// app/routes/about.gjs
-<template>
-  <div class="about-page">
-    <h1>About Us</h1>
-    <p>Welcome to our application!</p>
-  </div>
-</template>
-```
-
-Co-located route templates keep route logic and presentation together, making the codebase easier to navigate and maintain.
-
-Reference: [https://guides.emberjs.com/release/routing/](https://guides.emberjs.com/release/routing/)
-
-### 1.5 Use Route-Based Code Splitting
+### 1.4 Use Route-Based Code Splitting
 
 **Impact: CRITICAL (30-70% initial bundle reduction)**
 
@@ -504,6 +472,114 @@ module.exports = require('@embroider/compat').compatBuild(app, Vite, {
 Embroider with `splitAtRoutes` creates separate bundles for specified routes, reducing initial load time by 30-70%.
 
 Reference: [https://github.com/embroider-build/embroider](https://github.com/embroider-build/embroider)
+
+### 1.5 Use Separate Route and Template Files
+
+**Impact: MEDIUM-HIGH (Better code organization and maintainability)**
+
+Keep route logic in `app/routes/*.js` and route templates in `app/templates/*.gjs`. Route classes imported from `@ember/routing/route` do not support inline `<template>` blocks.
+
+**Incorrect: inline template inside a route class**
+
+```glimmer-js
+// app/routes/posts.gjs
+import Route from '@ember/routing/route';
+
+export default class PostsRoute extends Route {
+  model() {
+    return this.store.request({ url: '/posts' });
+  }
+
+  <template>
+    <h1>Posts</h1>
+    <ul>
+      {{#each @model as |post|}}
+        <li>{{post.title}}</li>
+      {{/each}}
+    </ul>
+
+    {{outlet}}
+  </template>
+}
+```
+
+**Correct: separate route module and template file**
+
+```javascript
+// app/routes/posts.js
+import Route from '@ember/routing/route';
+
+export default class PostsRoute extends Route {
+  model() {
+    return this.store.request({ url: '/posts' });
+  }
+}
+```
+
+```glimmer-js
+// app/templates/posts.gjs
+<template>
+  <h1>Posts</h1>
+  <ul>
+    {{#each @model as |post|}}
+      <li>{{post.title}}</li>
+    {{/each}}
+  </ul>
+
+  {{outlet}}
+</template>
+```
+
+**With a separate template file for route UI:**
+
+```javascript
+// app/routes/posts.js
+import Route from '@ember/routing/route';
+import { service } from '@ember/service';
+
+export default class PostsRoute extends Route {
+  @service store;
+
+  model() {
+    return this.store.request({ url: '/posts' });
+  }
+}
+```
+
+```glimmer-js
+// app/templates/posts.gjs
+<template>
+  <div class="posts-page">
+    <h1>Posts</h1>
+
+    {{#if @model}}
+      <ul>
+        {{#each @model as |post|}}
+          <li>{{post.title}}</li>
+        {{/each}}
+      </ul>
+    {{/if}}
+
+    {{outlet}}
+  </div>
+</template>
+```
+
+**Template-only routes:**
+
+```glimmer-js
+// app/templates/about.gjs
+<template>
+  <div class="about-page">
+    <h1>About Us</h1>
+    <p>Welcome to our application!</p>
+  </div>
+</template>
+```
+
+Keeping route classes and route templates in their conventional files matches Ember's supported routing model and makes examples easier to apply in real apps.
+
+Reference: [https://guides.emberjs.com/release/routing/](https://guides.emberjs.com/release/routing/)
 
 ---
 
@@ -974,6 +1050,21 @@ export class UserCard extends Component {
 **When Classes ARE Appropriate in Examples:**
 
 ```glimmer-js
+// Example: Teaching about conditional classes
+export class StatusBadge extends Component {
+  get statusClass() {
+    return this.args.status === 'active' ? 'badge-success' : 'badge-error';
+  }
+
+  <template>
+    <span class={{this.statusClass}}>
+      {{@status}}
+    </span>
+  </template>
+}
+```
+
+```glimmer-js
 // Example: Teaching about ...attributes for styling flexibility
 export class Card extends Component {
   <template>
@@ -998,6 +1089,17 @@ export class Card extends Component {
 4. **Critical to example** - Class name is essential to understanding (e.g., `selected`, `active`)
 
 **Examples Where Classes Add Value:**
+
+```glimmer-js
+// Good: Teaching about dynamic classes
+export class TabButton extends Component {
+  <template>
+    <button class={{if @isActive "active"}} {{on "click" @onClick}}>
+      {{yield}}
+    </button>
+  </template>
+}
+```
 
 ```glimmer-js
 // Good: Teaching about class composition
@@ -1185,6 +1287,22 @@ class Chart extends Component {
 
 **✅ Correct (custom modifier with automatic cleanup):**
 
+```javascript
+// app/modifiers/chart.js
+import { modifier } from 'ember-modifier';
+import { registerDestructor } from '@ember/destroyable';
+
+export default modifier((element, [config]) => {
+  // Setup
+  const chartInstance = new Chart(element, config);
+
+  // Cleanup happens automatically
+  registerDestructor(element, () => {
+    chartInstance.destroy();
+  });
+});
+```
+
 ```glimmer-js
 // app/components/chart.gjs
 import chart from '../modifiers/chart';
@@ -1240,6 +1358,40 @@ class UserProfile extends Component {
 ```
 
 **✅ Correct (Resource with automatic cleanup):**
+
+```javascript
+// app/resources/user-data.js
+import { Resource } from 'ember-resources';
+import { tracked } from '@glimmer/tracking';
+
+export default class UserDataResource extends Resource {
+  @tracked data = null;
+  @tracked loading = true;
+  controller = new AbortController();
+
+  modify(positional, named) {
+    const [userId] = positional;
+    this.loadUser(userId);
+  }
+
+  async loadUser(userId) {
+    this.loading = true;
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        signal: this.controller.signal,
+      });
+      this.data = await response.json();
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  willDestroy() {
+    // Cleanup happens automatically
+    this.controller.abort();
+  }
+}
+```
 
 ```glimmer-js
 // app/components/user-profile.gjs
@@ -1670,6 +1822,35 @@ This export guidance applies to `.gjs`/`.gts` component files only. If your app 
 
 **Incorrect:**
 
+```handlebars
+{{! app/components/user-card.hbs - WRONG: Using .hbs file }}
+<div class='user-card'>
+  {{@name}}
+</div>
+```
+
+```glimmer-js
+// app/components/user-card.js - WRONG: Separate .js and .hbs files
+import Component from '@glimmer/component';
+
+export class UserCard extends Component {
+  // Logic here
+}
+```
+
+```glimmer-js
+// app/components/user-card.gjs - WRONG: Component suffix
+import Component from '@glimmer/component';
+
+export class UserCardComponent extends Component {
+  <template>
+    <div class="user-card">
+      {{@name}}
+    </div>
+  </template>
+}
+```
+
 ```glimmer-js
 // app/components/UserProfile.gjs - WRONG: PascalCase filename
 import Component from '@glimmer/component';
@@ -1684,6 +1865,19 @@ export class UserProfile extends Component {
 ```
 
 **Correct:**
+
+```glimmer-js
+// app/components/user-card.gjs - CORRECT: kebab-case filename, no Component suffix, no default export
+import Component from '@glimmer/component';
+
+export class UserCard extends Component {
+  <template>
+    <div class="user-card">
+      {{@name}}
+    </div>
+  </template>
+}
+```
 
 ```glimmer-js
 // app/components/user-profile.gjs - CORRECT: All conventions followed
@@ -2107,6 +2301,20 @@ class WindowSize extends Component {
 ```
 
 **Using modifiers for automatic cleanup:**
+
+```javascript
+// app/modifiers/window-listener.js
+import { modifier } from 'ember-modifier';
+
+export default modifier((element, [eventName, handler]) => {
+  window.addEventListener(eventName, handler);
+
+  // Automatic cleanup when element is removed
+  return () => {
+    window.removeEventListener(eventName, handler);
+  };
+});
+```
 
 ```glimmer-js
 // app/components/resize-aware.gjs
@@ -2550,6 +2758,32 @@ class FormContainer extends Component {
 
 **Mixin-like composition with class fields:**
 
+```javascript
+// app/utils/pagination-mixin.js
+import { tracked } from '@glimmer/tracking';
+
+export class PaginationState {
+  @tracked page = 1;
+  @tracked perPage = 20;
+
+  get offset() {
+    return (this.page - 1) * this.perPage;
+  }
+
+  nextPage = () => {
+    this.page++;
+  };
+
+  prevPage = () => {
+    if (this.page > 1) this.page--;
+  };
+
+  goToPage = (page) => {
+    this.page = page;
+  };
+}
+```
+
 ```glimmer-js
 // app/components/paginated-list.gjs
 import Component from '@glimmer/component';
@@ -2597,6 +2831,44 @@ class PaginatedList extends Component {
 ```
 
 **Shareable state objects:**
+
+```javascript
+// app/utils/selection-state.js
+import { tracked } from '@glimmer/tracking';
+import { TrackedSet } from 'tracked-built-ins';
+
+export class SelectionState {
+  @tracked selectedIds = new TrackedSet();
+
+  get count() {
+    return this.selectedIds.size;
+  }
+
+  get hasSelection() {
+    return this.selectedIds.size > 0;
+  }
+
+  isSelected(id) {
+    return this.selectedIds.has(id);
+  }
+
+  toggle = (id) => {
+    if (this.selectedIds.has(id)) {
+      this.selectedIds.delete(id);
+    } else {
+      this.selectedIds.add(id);
+    }
+  };
+
+  selectAll = (items) => {
+    items.forEach((item) => this.selectedIds.add(item.id));
+  };
+
+  clear = () => {
+    this.selectedIds.clear();
+  };
+}
+```
 
 ```glimmer-js
 // app/components/selectable-list.gjs
@@ -2836,6 +3108,30 @@ import DataTable from './data-table';
 **Renderless component pattern:**
 
 ```glimmer-js
+// app/components/dropdown.gjs
+import Component from '@glimmer/component';
+import { tracked } from '@glimmer/tracking';
+import { action } from '@ember/object';
+import { hash } from '@ember/helper';
+
+class Dropdown extends Component {
+  @tracked isOpen = false;
+
+  @action
+  toggle() {
+    this.isOpen = !this.isOpen;
+  }
+
+  @action
+  close() {
+    this.isOpen = false;
+  }
+
+  <template>{{yield (hash isOpen=this.isOpen toggle=this.toggle close=this.close)}}</template>
+}
+```
+
+```glimmer-js
 // Usage
 import Dropdown from './dropdown';
 
@@ -2965,6 +3261,201 @@ class SignupForm extends Component {
 Use native `<form>` with proper input types and browser validation:
 
 **Correct: Native form with platform validation**
+
+```glimmer-js
+// app/components/signup-form.gjs
+import Component from '@glimmer/component';
+import { tracked } from '@glimmer/tracking';
+import { on } from '@ember/modifier';
+
+class SignupForm extends Component {
+  @tracked validationErrors = null;
+
+  handleSubmit = (event) => {
+    event.preventDefault();
+    const form = event.target;
+
+    // ✅ Use native checkValidity()
+    if (!form.checkValidity()) {
+      // Show native validation messages
+      form.reportValidity();
+      return;
+    }
+
+    // ✅ Use FormData API - no tracked state needed!
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData);
+
+    this.args.onSubmit(data);
+  };
+
+  <template>
+    <form {{on "submit" this.handleSubmit}}>
+      {{! ✅ Browser handles validation automatically }}
+      <input type="email" name="email" required placeholder="email@example.com" />
+
+      <input
+        type="password"
+        name="password"
+        required
+        minlength="8"
+        placeholder="Min 8 characters"
+      />
+
+      <button type="submit">Sign Up</button>
+    </form>
+  </template>
+}
+```
+
+```glimmer-js
+// app/components/validated-form.gjs
+import Component from '@glimmer/component';
+import { tracked } from '@glimmer/tracking';
+import { on } from '@ember/modifier';
+
+class ValidatedForm extends Component {
+  @tracked errors = new Map();
+
+  handleInput = (event) => {
+    const input = event.target;
+
+    // ✅ Access Constraint Validation API
+    if (!input.validity.valid) {
+      this.errors.set(input.name, input.validationMessage);
+    } else {
+      this.errors.delete(input.name);
+    }
+  };
+
+  handleSubmit = (event) => {
+    event.preventDefault();
+    const form = event.target;
+
+    if (!form.checkValidity()) {
+      // Trigger native validation UI
+      form.reportValidity();
+      return;
+    }
+
+    const formData = new FormData(form);
+    this.args.onSubmit(Object.fromEntries(formData));
+  };
+
+  <template>
+    <form {{on "submit" this.handleSubmit}}>
+      <div>
+        <label for="email">Email</label>
+        <input id="email" type="email" name="email" required {{on "input" this.handleInput}} />
+        {{#if (this.errors.get "email")}}
+          <span class="error" role="alert">
+            {{this.errors.get "email"}}
+          </span>
+        {{/if}}
+      </div>
+
+      <div>
+        <label for="age">Age</label>
+        <input
+          id="age"
+          type="number"
+          name="age"
+          min="18"
+          max="120"
+          required
+          {{on "input" this.handleInput}}
+        />
+        {{#if (this.errors.get "age")}}
+          <span class="error" role="alert">
+            {{this.errors.get "age"}}
+          </span>
+        {{/if}}
+      </div>
+
+      <button type="submit">Submit</button>
+    </form>
+  </template>
+}
+```
+
+```javascript
+handleInput = (event) => {
+  const input = event.target;
+  const validity = input.validity;
+
+  // Check specific validation states:
+  if (validity.valueMissing) {
+    // required field is empty
+  }
+  if (validity.typeMismatch) {
+    // type="email" but value isn't email format
+  }
+  if (validity.tooShort || validity.tooLong) {
+    // minlength/maxlength violated
+  }
+  if (validity.rangeUnderflow || validity.rangeOverflow) {
+    // min/max violated
+  }
+  if (validity.patternMismatch) {
+    // pattern attribute not matched
+  }
+
+  // Or use the aggregated validationMessage:
+  if (!validity.valid) {
+    this.showError(input.name, input.validationMessage);
+  }
+};
+```
+
+```glimmer-js
+// app/components/password-match-form.gjs
+import Component from '@glimmer/component';
+import { on } from '@ember/modifier';
+
+class PasswordMatchForm extends Component {
+  validatePasswordMatch = (event) => {
+    const form = event.target.form;
+    const password = form.querySelector('[name="password"]');
+    const confirm = form.querySelector('[name="confirm"]');
+
+    // ✅ Use setCustomValidity for custom validation
+    if (password.value !== confirm.value) {
+      confirm.setCustomValidity('Passwords must match');
+    } else {
+      confirm.setCustomValidity(''); // Clear custom error
+    }
+  };
+
+  handleSubmit = (event) => {
+    event.preventDefault();
+    const form = event.target;
+
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    const formData = new FormData(form);
+    this.args.onSubmit(Object.fromEntries(formData));
+  };
+
+  <template>
+    <form {{on "submit" this.handleSubmit}}>
+      <input type="password" name="password" required minlength="8" placeholder="Password" />
+
+      <input
+        type="password"
+        name="confirm"
+        required
+        placeholder="Confirm password"
+        {{on "input" this.validatePasswordMatch}}
+      />
+
+      <button type="submit">Create Account</button>
+    </form>
+  </template>
+}
+```
 
 ```glimmer-js
 // app/components/live-search.gjs - Controlled state needed for instant search
@@ -3380,30 +3871,173 @@ export default class Router extends EmberRouter {
 }
 ```
 
-**Correct: using a11y-announcer library - recommended**
+**Correct: using ember-a11y-refocus library - recommended**
+
+```bash
+pnpm add ember-a11y-refocus
+```
+
+```bash
+npm install ember-a11y-refocus
+```
+
+```handlebars
+{{! app/templates/application.hbs }}
+<header>
+  <NavigationNarrator />
+  {{! other header content }}
+</header>
+
+<main id='main'>
+  {{outlet}}
+</main>
+```
 
 ```glimmer-js
-// app/routes/dashboard.gjs
-import { pageTitle } from 'ember-page-title';
+import { NavigationNarrator } from 'ember-a11y-refocus';
 
 <template>
-  {{pageTitle "Dashboard"}}
+  <header>
+    <NavigationNarrator />
+  </header>
 
-  <div class="dashboard">
+  <main id="main">
     {{outlet}}
-  </div>
+  </main>
 </template>
 ```
 
-Use the [a11y-announcer](https://github.com/ember-a11y/a11y-announcer) library for robust route announcements:
+```javascript
+// app/app.js or app/app.ts
+import 'ember-a11y-refocus/styles/navigation-narrator.css';
+```
 
-The a11y-announcer library automatically handles route announcements. For custom announcements in your routes:
+```javascript
+// app/controllers/application.js
+import Controller from '@ember/controller';
+import { defaultValidator } from 'ember-a11y-refocus';
+
+export default class ApplicationController extends Controller {
+  myCustomValidator(transition) {
+    if (transition.from?.name === 'special') {
+      return false;
+    }
+
+    return defaultValidator(transition);
+  }
+}
+```
+
+```handlebars
+{{! app/templates/application.hbs }}
+<header>
+  <NavigationNarrator @routeChangeValidator={{this.myCustomValidator}} />
+</header>
+
+<main id='main'>
+  {{outlet}}
+</main>
+```
+
+```javascript
+// app/router.js
+import EmberRouter from '@ember/routing/router';
+import config from './config/environment';
+
+export default class Router extends EmberRouter {
+  location = config.locationType;
+  rootURL = config.rootURL;
+}
+
+Router.map(function () {
+  this.route('about');
+  this.route('dashboard');
+  this.route('posts', function () {
+    this.route('post', { path: '/:post_id' });
+  });
+});
+```
+
+```javascript
+// app/routes/application.js
+import Route from '@ember/routing/route';
+import { service } from '@ember/service';
+
+export default class ApplicationRoute extends Route {
+  @service router;
+
+  constructor() {
+    super(...arguments);
+
+    this.router.on('routeDidChange', (transition) => {
+      // Update document title
+      const title = this.getPageTitle(transition.to);
+      document.title = title;
+
+      // Announce to screen readers
+      this.announceRouteChange(title);
+    });
+  }
+
+  getPageTitle(route) {
+    // Get title from route metadata or generate it
+    return route.metadata?.title || route.name;
+  }
+
+  announceRouteChange(title) {
+    const announcement = document.getElementById('route-announcement');
+    if (announcement) {
+      announcement.textContent = `Navigated to ${title}`;
+    }
+  }
+}
+```
+
+```glimmer-js
+// app/routes/application.gjs
+<template>
+  <div
+    id="route-announcement"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    class="sr-only"
+  ></div>
+
+  {{outlet}}
+</template>
+```
+
+```css
+/* app/styles/app.css */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+```
+
+Use the [ember-a11y-refocus](https://github.com/ember-a11y/ember-a11y-refocus) library for robust route announcements, route transition focus management, and a bypass block (aka skip link).
+
+Or with npm:
+
+Use the addon by rendering `NavigationNarrator` in your application layout and ensuring your primary content has `id="main"`.
+
+If you are using GJS or GTS, import the component directly:
+
+The addon ships minimal styles for the skip link and navigation message:
+
+If you need to customize which transitions count as a route change, pass a validator function to `NavigationNarrator`:
 
 **Alternative: DIY approach with ARIA live regions:**
 
 If you prefer not to use a library, you can implement route announcements yourself:
-
-**Alternative: Use ember-page-title with announcements:**
 
 Route announcements ensure screen reader users know when navigation occurs, improving the overall accessibility experience.
 
@@ -3575,6 +4209,16 @@ Ensure all interactive elements are keyboard accessible and focus management is 
 
 **Correct: full keyboard support with custom modifier**
 
+```javascript
+// app/modifiers/focus-first.js
+import { modifier } from 'ember-modifier';
+
+export default modifier((element, [selector = 'button']) => {
+  // Focus first matching element when modifier runs
+  element.querySelector(selector)?.focus();
+});
+```
+
 ```glimmer-js
 // app/components/dropdown.gjs
 import Component from '@glimmer/component';
@@ -3663,6 +4307,27 @@ class Dropdown extends Component {
 ```
 
 **For focus trapping in modals, use ember-focus-trap:**
+
+```bash
+ember install ember-focus-trap
+```
+
+```glimmer-js
+// app/components/modal.gjs
+import FocusTrap from 'ember-focus-trap/components/focus-trap';
+
+<template>
+  {{#if this.showModal}}
+    <FocusTrap @isActive={{true}} @initialFocus="#modal-title">
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <h2 id="modal-title">{{@title}}</h2>
+        {{yield}}
+        <button type="button" {{on "click" this.closeModal}}>Close</button>
+      </div>
+    </FocusTrap>
+  {{/if}}
+</template>
+```
 
 ```bash
 npm install @fluentui/keyboard-keys
@@ -3834,12 +4499,22 @@ module('Integration | Component | user-form', function (hooks) {
 
 **Setup: install and configure**
 
+```bash
+ember install ember-a11y-testing
+```
+
 ```javascript
 // tests/test-helper.js
 import { setupGlobalA11yHooks } from 'ember-a11y-testing/test-support';
 
 setupGlobalA11yHooks(); // Runs on every test automatically
 ```
+
+Keep the default ember-a11y-testing and axe-core rules turned on. Avoid disabling rules globally or excluding specific rules to bypass failures without a documented remediation plan.
+
+When teams suppress accessibility rules without a time-boxed remediation plan, they hide real defects, accumulate technical debt, and make regressions harder to detect. A skipped rule can allow a serious accessibility defect to ship to production, especially for problems involving forms, keyboard access, focus management, semantics, or ARIA usage.
+
+If you must suppress a rule temporarily, treat it as an exception: document why it is needed, scope it as narrowly as possible, and create follow-up work to restore the rule quickly.
 
 ember-a11y-testing catches issues like missing labels, insufficient color contrast, invalid ARIA, and keyboard navigation problems automatically.
 
@@ -3980,6 +4655,221 @@ export default class DashboardRoute extends Route {
 Use `RSVP.hash` or `Promise.all` for parallel loading:
 
 **Correct: parallelized model loading**
+
+```javascript
+// app/routes/dashboard.js
+import Route from '@ember/routing/route';
+import { hash } from 'rsvp';
+
+export default class DashboardRoute extends Route {
+  async model() {
+    return hash({
+      user: this.store.request({ url: '/users/me' }),
+      posts: this.store.request({ url: '/posts?recent=true' }),
+      notifications: this.store.request({ url: '/notifications?unread=true' }),
+    });
+  }
+}
+```
+
+```javascript
+// app/services/api.js
+import Service, { service } from '@ember/service';
+import { tracked } from '@glimmer/tracking';
+
+export default class ApiService extends Service {
+  @service store;
+  @tracked lastError = null;
+
+  async fetchWithFallback(url, fallback = null) {
+    try {
+      const response = await this.store.request({ url });
+      this.lastError = null;
+      return response.content;
+    } catch (error) {
+      this.lastError = error.message;
+      console.error(`API Error fetching ${url}:`, error);
+      return fallback;
+    }
+  }
+
+  async fetchWithRetry(url, { maxRetries = 3, delay = 1000 } = {}) {
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await this.store.request({ url });
+      } catch (error) {
+        if (attempt === maxRetries - 1) throw error;
+        await new Promise((resolve) => setTimeout(resolve, delay * (attempt + 1)));
+      }
+    }
+  }
+}
+```
+
+```glimmer-js
+// app/components/search-results.gjs
+import Component from '@glimmer/component';
+import { service } from '@ember/service';
+import { tracked } from '@glimmer/tracking';
+import { restartableTask, timeout } from 'ember-concurrency';
+
+class SearchResults extends Component {
+  @service store;
+  @tracked results = [];
+
+  // Automatically cancels previous searches
+  @restartableTask
+  *searchTask(query) {
+    yield timeout(300); // Debounce
+
+    try {
+      const response = yield this.store.request({
+        url: `/search?q=${encodeURIComponent(query)}`,
+      });
+      this.results = response.content;
+    } catch (error) {
+      if (error.name !== 'TaskCancelation') {
+        console.error('Search failed:', error);
+      }
+    }
+  }
+
+  <template>
+    <input
+      type="search"
+      {{on "input" (fn this.searchTask.perform @value)}}
+      placeholder="Search..."
+    />
+
+    {{#if this.searchTask.isRunning}}
+      <div class="loading">Searching...</div>
+    {{else}}
+      <ul>
+        {{#each this.results as |result|}}
+          <li>{{result.title}}</li>
+        {{/each}}
+      </ul>
+    {{/if}}
+  </template>
+}
+```
+
+```javascript
+// app/services/data-fetcher.js
+import Service, { service } from '@ember/service';
+import { tracked } from '@glimmer/tracking';
+import { registerDestructor } from '@ember/destroyable';
+
+export default class DataFetcherService extends Service {
+  @service store;
+  @tracked data = null;
+  @tracked isLoading = false;
+
+  abortController = null;
+
+  constructor() {
+    super(...arguments);
+    registerDestructor(this, () => {
+      this.abortController?.abort();
+    });
+  }
+
+  async fetch(url) {
+    // Cancel previous request
+    this.abortController?.abort();
+    this.abortController = new AbortController();
+
+    this.isLoading = true;
+    try {
+      // Note: WarpDrive handles AbortSignal internally
+      const response = await this.store.request({
+        url,
+        signal: this.abortController.signal,
+      });
+      this.data = response.content;
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        throw error;
+      }
+    } finally {
+      this.isLoading = false;
+    }
+  }
+}
+```
+
+```javascript
+// app/routes/post.js
+import Route from '@ember/routing/route';
+import { hash } from 'rsvp';
+
+export default class PostRoute extends Route {
+  async model({ post_id }) {
+    // First fetch the post
+    const post = await this.store.request({
+      url: `/posts/${post_id}`,
+    });
+
+    // Then fetch related data in parallel
+    return hash({
+      post,
+      author: this.store.request({
+        url: `/users/${post.content.authorId}`,
+      }),
+      comments: this.store.request({
+        url: `/posts/${post_id}/comments`,
+      }),
+      relatedPosts: this.store.request({
+        url: `/posts/${post_id}/related`,
+      }),
+    });
+  }
+}
+```
+
+```javascript
+// app/services/live-data.js
+import Service, { service } from '@ember/service';
+import { tracked } from '@glimmer/tracking';
+import { registerDestructor } from '@ember/destroyable';
+
+export default class LiveDataService extends Service {
+  @service store;
+  @tracked data = null;
+
+  intervalId = null;
+
+  constructor() {
+    super(...arguments);
+    registerDestructor(this, () => {
+      this.stopPolling();
+    });
+  }
+
+  startPolling(url, interval = 5000) {
+    this.stopPolling();
+
+    this.poll(url); // Initial fetch
+    this.intervalId = setInterval(() => this.poll(url), interval);
+  }
+
+  async poll(url) {
+    try {
+      const response = await this.store.request({ url });
+      this.data = response.content;
+    } catch (error) {
+      console.error('Polling error:', error);
+    }
+  }
+
+  stopPolling() {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+    }
+  }
+}
+```
 
 ```javascript
 // app/services/batch-loader.js
@@ -4150,6 +5040,33 @@ class DataProcessor extends Component {
 
 **Factory pattern with owner:**
 
+```javascript
+// app/utils/logger-factory.js
+import { getOwner } from '@ember/application';
+
+class Logger {
+  constructor(owner, context) {
+    this.owner = owner;
+    this.context = context;
+  }
+
+  get config() {
+    // Access configuration service via owner
+    return getOwner(this).lookup('service:config');
+  }
+
+  log(message) {
+    if (this.config.enableLogging) {
+      console.log(`[${this.context}]`, message);
+    }
+  }
+}
+
+export function createLogger(owner, context) {
+  return new Logger(owner, context);
+}
+```
+
 ```glimmer-js
 // Usage in component
 import Component from '@glimmer/component';
@@ -4276,6 +5193,38 @@ export class AnalyticsTracker extends Component {
 
 **Co-located services with components:**
 
+```javascript
+// app/components/shopping-cart/service.js
+import Service from '@ember/service';
+import { tracked } from '@glimmer/tracking';
+import { TrackedArray } from 'tracked-built-ins';
+import { action } from '@ember/object';
+
+export class CartService extends Service {
+  @tracked items = new TrackedArray([]);
+
+  get total() {
+    return this.items.reduce((sum, item) => sum + item.price, 0);
+  }
+
+  @action
+  addItem(item) {
+    this.items.push(item);
+  }
+
+  @action
+  removeItem(id) {
+    const index = this.items.findIndex((item) => item.id === id);
+    if (index > -1) this.items.splice(index, 1);
+  }
+
+  @action
+  clear() {
+    this.items.clear();
+  }
+}
+```
+
 ```glimmer-js
 // app/components/shopping-cart/index.gjs
 import Component from '@glimmer/component';
@@ -4311,6 +5260,43 @@ class ShoppingCart extends Component {
 ```
 
 **Service-like utilities in utils/ directory:**
+
+```javascript
+// app/utils/notification-manager.js
+import { tracked } from '@glimmer/tracking';
+import { action } from '@ember/object';
+import { TrackedArray } from 'tracked-built-ins';
+import { setOwner } from '@ember/application';
+
+export class NotificationManager {
+  @tracked notifications = new TrackedArray([]);
+
+  constructor(owner) {
+    setOwner(this, owner);
+  }
+
+  @action
+  add(message, type = 'info') {
+    const notification = {
+      id: Math.random().toString(36),
+      message,
+      type,
+      timestamp: Date.now(),
+    };
+
+    this.notifications.push(notification);
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => this.dismiss(notification.id), 5000);
+  }
+
+  @action
+  dismiss(id) {
+    const index = this.notifications.findIndex((n) => n.id === id);
+    if (index > -1) this.notifications.splice(index, 1);
+  }
+}
+```
 
 ```glimmer-js
 // app/components/notification-container.gjs
@@ -4574,6 +5560,40 @@ export default class DashboardRoute extends Route {
 **Correct: using service**
 
 ```javascript
+// app/services/theme.js
+import Service from '@ember/service';
+import { tracked } from '@glimmer/tracking';
+import { action } from '@ember/object';
+
+export default class ThemeService extends Service {
+  @tracked currentTheme = 'dark';
+
+  @action
+  setTheme(theme) {
+    this.currentTheme = theme;
+    localStorage.setItem('theme', theme);
+  }
+
+  @action
+  loadTheme() {
+    this.currentTheme = localStorage.getItem('theme') || 'dark';
+  }
+}
+```
+
+```javascript
+// app/components/header.js
+import Component from '@glimmer/component';
+import { service } from '@ember/service';
+
+class Header extends Component {
+  @service theme;
+
+  // Access theme.currentTheme directly
+}
+```
+
+```javascript
 // app/components/sidebar.js
 import Component from '@glimmer/component';
 import { service } from '@ember/service';
@@ -4759,6 +5779,31 @@ Compose helpers to create reusable, testable logic that can be combined in templ
 
 **Correct: composed helpers**
 
+```javascript
+// app/helpers/display-name.js
+export function displayName(name, { maxLength = 20 } = {}) {
+  if (!name) return '';
+
+  const truncated = name.length > maxLength ? name.slice(0, maxLength) + '...' : name;
+
+  return truncated.toUpperCase();
+}
+```
+
+```javascript
+// app/helpers/is-visible-user.js
+export function isVisibleUser(user) {
+  return user && user.isActive && !user.isDeleted;
+}
+```
+
+```javascript
+// app/helpers/format-email.js
+export function formatEmail(email) {
+  return email?.toLowerCase() || '';
+}
+```
+
 ```glimmer-js
 // app/components/user-profile.gjs
 import { displayName } from '../helpers/display-name';
@@ -4821,6 +5866,20 @@ const truncate = (str, length = 20) => str?.slice(0, length) || '';
 
 **Higher-order helpers:**
 
+```javascript
+// app/helpers/partial-apply.js
+export function partialApply(fn, ...args) {
+  return (...moreArgs) => fn(...args, ...moreArgs);
+}
+```
+
+```javascript
+// app/helpers/map-by.js
+export function mapBy(array, property) {
+  return array?.map((item) => item[property]) || [];
+}
+```
+
 ```glimmer-js
 // Usage in template
 import { mapBy } from '../helpers/map-by';
@@ -4843,6 +5902,43 @@ import { partialApply } from '../helpers/partial-apply';
 
 **Chainable transformation helpers:**
 
+```javascript
+// app/helpers/transform.js
+class Transform {
+  constructor(value) {
+    this.value = value;
+  }
+
+  filter(fn) {
+    this.value = this.value?.filter(fn) || [];
+    return this;
+  }
+
+  map(fn) {
+    this.value = this.value?.map(fn) || [];
+    return this;
+  }
+
+  sort(fn) {
+    this.value = [...(this.value || [])].sort(fn);
+    return this;
+  }
+
+  take(n) {
+    this.value = this.value?.slice(0, n) || [];
+    return this;
+  }
+
+  get result() {
+    return this.value;
+  }
+}
+
+export function transform(value) {
+  return new Transform(value);
+}
+```
+
 ```glimmer-js
 // Usage
 import { transform } from '../helpers/transform';
@@ -4864,6 +5960,13 @@ function filter(items) {
 ```
 
 **Conditional composition:**
+
+```javascript
+// app/helpers/when.js
+export function when(condition, trueFn, falseFn) {
+  return condition ? trueFn() : falseFn ? falseFn() : null;
+}
+```
 
 ```javascript
 // app/helpers/unless.js
@@ -4961,6 +6064,16 @@ import { eq, not } from 'ember-truth-helpers'; // From ember-truth-helpers addon
 
 **Custom helper with imports:**
 
+```javascript
+// app/utils/format-currency.js
+export function formatCurrency(amount, { currency = 'USD' } = {}) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+  }).format(amount);
+}
+```
+
 ```glimmer-js
 // app/components/price-display.gjs
 import { formatCurrency } from '../utils/format-currency';
@@ -5047,6 +6160,16 @@ import { formatDate } from '../utils/format-date';
 
 **With Multiple Arguments:**
 
+```javascript
+// app/utils/format-currency.js
+export function formatCurrency(amount, currency = 'USD') {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+  }).format(amount);
+}
+```
+
 ```glimmer-js
 // app/components/price.gjs
 import { formatCurrency } from '../utils/format-currency';
@@ -5107,6 +6230,22 @@ export function capitalize(text) {
 
 **Common Helper Patterns:**
 
+```javascript
+// app/utils/string-helpers.js
+export function capitalize(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+export function truncate(text, length = 50) {
+  if (text.length <= length) return text;
+  return text.slice(0, length) + '...';
+}
+
+export function pluralize(count, singular, plural) {
+  return count === 1 ? singular : plural;
+}
+```
+
 ```glimmer-js
 // Usage
 import { capitalize, truncate, pluralize } from '../utils/string-helpers';
@@ -5161,6 +6300,64 @@ Use `{{#if}}` / `{{#else if}}` / `{{#else}}` chains and extract computed logic t
 **Correct:**
 
 ```glimmer-js
+// app/components/user-list.gjs
+import Component from '@glimmer/component';
+
+class UserList extends Component {
+  <template>
+    {{#each @users as |user|}}
+      <div class="user">
+        {{#if (eq user.role "admin")}}
+          <span class="badge admin">{{user.name}} (Admin)</span>
+        {{else if (eq user.role "moderator")}}
+          <span class="badge mod">{{user.name}} (Mod)</span>
+        {{else}}
+          <span>{{user.name}}</span>
+        {{/if}}
+      </div>
+    {{/each}}
+  </template>
+}
+```
+
+```glimmer-js
+// app/components/user-card.gjs
+import Component from '@glimmer/component';
+import { cached } from '@glimmer/tracking';
+
+class UserCard extends Component {
+  @cached
+  get isActive() {
+    return this.args.user.status === 'active' && this.args.user.lastLoginDays < 30;
+  }
+
+  @cached
+  get showActions() {
+    return this.args.canEdit && !this.args.user.locked && this.isActive;
+  }
+
+  <template>
+    <div class="user-card">
+      <h3>{{@user.name}}</h3>
+
+      {{#if this.isActive}}
+        <span class="status active">Active</span>
+      {{else}}
+        <span class="status inactive">Inactive</span>
+      {{/if}}
+
+      {{#if this.showActions}}
+        <div class="actions">
+          <button>Edit</button>
+          <button>Delete</button>
+        </div>
+      {{/if}}
+    </div>
+  </template>
+}
+```
+
+```glimmer-js
 // app/components/task-list.gjs
 import Component from '@glimmer/component';
 
@@ -5205,6 +6402,55 @@ Use `{{#if}}` to guard `{{#each}}` and avoid rendering empty states:
 ```
 
 **Good:**
+
+```glimmer-js
+// app/components/content-gate.gjs
+import Component from '@glimmer/component';
+import { cached } from '@glimmer/tracking';
+
+class ContentGate extends Component {
+  @cached
+  get canViewPremium() {
+    return this.args.user?.isPremium && this.args.user?.hasAccess;
+  }
+
+  <template>
+    {{#if this.canViewPremium}}
+      <PremiumContent />
+    {{else}}
+      <UpgradeCTA />
+    {{/if}}
+  </template>
+}
+```
+
+```glimmer-js
+// app/components/media-viewer.gjs
+import Component from '@glimmer/component';
+import ImageViewer from './image-viewer';
+import VideoPlayer from './video-player';
+import AudioPlayer from './audio-player';
+import { cached } from '@glimmer/tracking';
+
+class MediaViewer extends Component {
+  @cached
+  get mediaType() {
+    return this.args.media?.type;
+  }
+
+  <template>
+    {{#if (eq this.mediaType "image")}}
+      <ImageViewer @src={{@media.url}} />
+    {{else if (eq this.mediaType "video")}}
+      <VideoPlayer @src={{@media.url}} />
+    {{else if (eq this.mediaType "audio")}}
+      <AudioPlayer @src={{@media.url}} />
+    {{else}}
+      <p>Unsupported media type</p>
+    {{/if}}
+  </template>
+}
+```
 
 ```glimmer-js
 // app/components/data-display.gjs
@@ -5348,6 +6594,36 @@ function isOnSale(product) {
 ```
 
 **When to use class-based vs template-only:**
+
+```glimmer-js
+// Use class-based when:
+// - You need @cached for expensive computations accessed multiple times
+// - You have tracked state
+// - You need lifecycle hooks or services
+
+import Component from '@glimmer/component';
+import { cached } from '@glimmer/tracking';
+
+export class ProductList extends Component {
+  @cached
+  get sortedProducts() {
+    // Expensive sort, accessed in template multiple times
+    return [...this.args.products].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  @cached
+  get filteredProducts() {
+    // Depends on sortedProducts - benefits from caching
+    return this.sortedProducts.filter((p) => p.category === this.args.selectedCategory);
+  }
+
+  <template>
+    {{#each this.filteredProducts as |product|}}
+      <div>{{product.name}}</div>
+    {{/each}}
+  </template>
+}
+```
 
 ```glimmer-js
 // Use template-only when:
@@ -5825,6 +7101,123 @@ Use helper libraries like `ember-truth-helpers` and `ember-composable-helpers`:
 **Correct:**
 
 ```glimmer-js
+// app/components/user-badge.gjs
+import Component from '@glimmer/component';
+import { eq } from 'ember-truth-helpers';
+
+class UserBadge extends Component {
+  <template>
+    {{! eq helper from ember-truth-helpers }}
+    {{#if (eq @user.role "admin")}}
+      <span class="badge">Admin</span>
+    {{/if}}
+  </template>
+}
+```
+
+```glimmer-js
+// app/components/comparison-examples.gjs
+import Component from '@glimmer/component';
+import { eq, not, and, or, lt, lte, gt, gte } from 'ember-truth-helpers';
+
+class ComparisonExamples extends Component {
+  <template>
+    {{! Equality }}
+    {{#if (eq @status "active")}}Active{{/if}}
+
+    {{! Negation }}
+    {{#if (not @isDeleted)}}Visible{{/if}}
+
+    {{! Logical AND }}
+    {{#if (and @isPremium @hasAccess)}}Premium Content{{/if}}
+
+    {{! Logical OR }}
+    {{#if (or @isAdmin @isModerator)}}Moderation Tools{{/if}}
+
+    {{! Comparisons }}
+    {{#if (gt @score 100)}}High Score!{{/if}}
+    {{#if (lte @attempts 3)}}Try again{{/if}}
+  </template>
+}
+```
+
+```glimmer-js
+// app/components/collection-helpers.gjs
+import Component from '@glimmer/component';
+import { array, hash } from 'ember-composable-helpers/helpers';
+import { get } from 'ember-composable-helpers/helpers';
+
+class CollectionHelpers extends Component {
+  <template>
+    {{! Create array inline }}
+    {{#each (array "apple" "banana" "cherry") as |fruit|}}
+      <li>{{fruit}}</li>
+    {{/each}}
+
+    {{! Create object inline }}
+    {{#let (hash name="John" age=30 active=true) as |user|}}
+      <p>{{user.name}} is {{user.age}} years old</p>
+    {{/let}}
+
+    {{! Dynamic property access }}
+    <p>{{get @user @propertyName}}</p>
+  </template>
+}
+```
+
+```glimmer-js
+// app/components/string-helpers.gjs
+import Component from '@glimmer/component';
+import { concat } from '@ember/helper'; // Built-in to Ember
+
+class StringHelpers extends Component {
+  <template>
+    {{! Concatenate strings }}
+    <p class={{concat "user-" @user.id "-card"}}>
+      {{concat @user.firstName " " @user.lastName}}
+    </p>
+
+    {{! With dynamic values }}
+    <img
+      src={{concat "/images/" @category "/" @filename ".jpg"}}
+      alt={{concat "Image of " @title}}
+    />
+  </template>
+}
+```
+
+```glimmer-js
+// app/components/action-helpers.gjs
+import Component from '@glimmer/component';
+import { fn } from '@ember/helper'; // Built-in to Ember
+import { on } from '@ember/modifier';
+
+class ActionHelpers extends Component {
+  updateValue = (field, event) => {
+    this.args.onChange(field, event.target.value);
+  };
+
+  deleteItem = (id) => {
+    this.args.onDelete(id);
+  };
+
+  <template>
+    {{! Partial application with fn }}
+    <input {{on "input" (fn this.updateValue "email")}} />
+
+    {{#each @items as |item|}}
+      <li>
+        {{item.name}}
+        <button {{on "click" (fn this.deleteItem item.id)}}>
+          Delete
+        </button>
+      </li>
+    {{/each}}
+  </template>
+}
+```
+
+```glimmer-js
 // app/components/conditional-inline.gjs
 import Component from '@glimmer/component';
 import { if as ifHelper } from '@ember/helper'; // Built-in to Ember
@@ -5876,6 +7269,43 @@ class DynamicClasses extends Component {
 ```
 
 **List Filtering:**
+
+```glimmer-js
+// app/components/filtered-list.gjs
+import Component from '@glimmer/component';
+import { tracked } from '@glimmer/tracking';
+import { cached } from '@glimmer/tracking';
+import { fn, concat } from '@ember/helper';
+import { on } from '@ember/modifier';
+import { eq } from 'ember-truth-helpers';
+import { array } from 'ember-composable-helpers/helpers';
+
+class FilteredList extends Component {
+  @tracked filter = 'all';
+
+  @cached
+  get filteredItems() {
+    if (this.filter === 'all') return this.args.items;
+    return this.args.items.filter((item) => item.status === this.filter);
+  }
+
+  <template>
+    <select {{on "change" (fn (mut this.filter) target.value)}}>
+      {{#each (array "all" "active" "pending" "completed") as |option|}}
+        <option value={{option}} selected={{eq this.filter option}}>
+          {{option}}
+        </option>
+      {{/each}}
+    </select>
+
+    {{#each this.filteredItems as |item|}}
+      <div class={{concat "item " item.status}}>
+        {{item.name}}
+      </div>
+    {{/each}}
+  </template>
+}
+```
 
 ```glimmer-js
 // app/components/user-profile-card.gjs
@@ -6025,6 +7455,26 @@ export default class Button extends Component {
 **Correct: {{on}} modifier**
 
 ```glimmer-js
+// app/components/button.gjs
+import Component from '@glimmer/component';
+import { action } from '@ember/object';
+import { on } from '@ember/modifier';
+
+export default class Button extends Component {
+  @action
+  handleClick() {
+    console.log('clicked');
+  }
+
+  <template>
+    <button {{on "click" this.handleClick}}>
+      Click Me
+    </button>
+  </template>
+}
+```
+
+```glimmer-js
 // app/components/scrollable.gjs
 import Component from '@glimmer/component';
 import { action } from '@ember/object';
@@ -6048,6 +7498,90 @@ export default class Scrollable extends Component {
 The `{{on}}` modifier supports standard event listener options:
 
 **Available options:**
+
+```glimmer-js
+// app/components/input-field.gjs
+import Component from '@glimmer/component';
+import { action } from '@ember/object';
+import { on } from '@ember/modifier';
+
+export default class InputField extends Component {
+  @action
+  handleFocus() {
+    console.log('focused');
+  }
+
+  @action
+  handleBlur() {
+    console.log('blurred');
+  }
+
+  @action
+  handleInput(event) {
+    this.args.onChange?.(event.target.value);
+  }
+
+  <template>
+    <input
+      type="text"
+      value={{@value}}
+      {{on "focus" this.handleFocus}}
+      {{on "blur" this.handleBlur}}
+      {{on "input" this.handleInput}}
+    />
+  </template>
+}
+```
+
+```glimmer-js
+// app/components/form.gjs
+import Component from '@glimmer/component';
+import { action } from '@ember/object';
+import { on } from '@ember/modifier';
+
+export default class Form extends Component {
+  @action
+  handleSubmit(event) {
+    event.preventDefault(); // Prevent page reload
+    event.stopPropagation(); // Stop event bubbling if needed
+
+    this.args.onSubmit?.(/* form data */);
+  }
+
+  <template>
+    <form {{on "submit" this.handleSubmit}}>
+      <button type="submit">Submit</button>
+    </form>
+  </template>
+}
+```
+
+```glimmer-js
+// app/components/keyboard-nav.gjs
+import Component from '@glimmer/component';
+import { action } from '@ember/object';
+import { on } from '@ember/modifier';
+
+export default class KeyboardNav extends Component {
+  @action
+  handleKeyDown(event) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      this.args.onActivate?.();
+    }
+
+    if (event.key === 'Escape') {
+      this.args.onCancel?.();
+    }
+  }
+
+  <template>
+    <div role="button" tabindex="0" {{on "keydown" this.handleKeyDown}}>
+      {{yield}}
+    </div>
+  </template>
+}
+```
 
 ```glimmer-js
 // app/components/todo-list.gjs
@@ -6342,6 +7876,24 @@ Without abstracted test utilities:
 **Incorrect: exposing DOM to consumers**
 
 ```glimmer-js
+// my-library/src/components/data-grid.gjs
+export class DataGrid extends Component {
+  <template>
+    <div class="data-grid">
+      <div class="data-grid__header">
+        <button class="sort-button" data-column="name">Name</button>
+      </div>
+      <div class="data-grid__body">
+        {{#each @rows as |row|}}
+          <div class="data-grid__row">{{row.name}}</div>
+        {{/each}}
+      </div>
+    </div>
+  </template>
+}
+```
+
+```glimmer-js
 // Consumer's test - tightly coupled to DOM
 import { render, click } from '@ember/test-helpers';
 import { DataGrid } from 'my-library';
@@ -6367,6 +7919,84 @@ test('sorting works', async function (assert) {
 **Correct: providing DOM-abstracted test utilities**
 
 ```glimmer-js
+// my-library/src/test-support/data-grid.js
+import { click, findAll } from '@ember/test-helpers';
+
+/**
+ * Test utility for DataGrid component
+ * Provides stable API regardless of internal DOM structure
+ */
+export class DataGridTestHelper {
+  constructor(containerElement) {
+    this.container = containerElement;
+  }
+
+  /**
+   * Sort by column name
+   * @param {string} columnName - Column to sort by
+   */
+  async sortBy(columnName) {
+    // Implementation detail hidden from consumer
+    const button = this.container.querySelector(`[data-test-sort="${columnName}"]`);
+    if (!button) {
+      throw new Error(`Column "${columnName}" not found`);
+    }
+    await click(button);
+  }
+
+  /**
+   * Get all row data
+   * @returns {Array<string>} Row text content
+   */
+  getRows() {
+    return findAll('[data-test-row]', this.container).map((el) => el.textContent.trim());
+  }
+
+  /**
+   * Get row by index
+   * @param {number} index - Zero-based row index
+   * @returns {string} Row text content
+   */
+  getRow(index) {
+    const rows = this.getRows();
+    return rows[index];
+  }
+}
+
+// Factory function for easier usage
+export function getDataGrid(container = document) {
+  const gridElement = container.querySelector('[data-test-data-grid]');
+  if (!gridElement) {
+    throw new Error('DataGrid component not found');
+  }
+  return new DataGridTestHelper(gridElement);
+}
+```
+
+```glimmer-js
+// my-library/src/components/data-grid.gjs
+// Component updated with test hooks (data-test-*)
+export class DataGrid extends Component {
+  <template>
+    <div data-test-data-grid class="data-grid">
+      <div class="data-grid__header">
+        {{#each @columns as |column|}}
+          <button data-test-sort={{column.name}}>
+            {{column.label}}
+          </button>
+        {{/each}}
+      </div>
+      <div class="data-grid__body">
+        {{#each @rows as |row|}}
+          <div data-test-row class="data-grid__row">{{row.name}}</div>
+        {{/each}}
+      </div>
+    </div>
+  </template>
+}
+```
+
+```glimmer-js
 // Consumer's test - abstracted from DOM
 import { render } from '@ember/test-helpers';
 import { DataGrid } from 'my-library';
@@ -6386,6 +8016,57 @@ test('sorting works', async function (assert) {
 ```
 
 **Benefits:**
+
+```glimmer-js
+// Stable test hooks that won't conflict with styling
+<button data-test-submit>Submit</button>
+<div data-test-error-message>{{@errorMessage}}</div>
+```
+
+```javascript
+/**
+ * @class FormTestHelper
+ * @description Test utility for Form component
+ *
+ * @example
+ * const form = getForm();
+ * await form.fillIn('email', 'user@example.com');
+ * await form.submit();
+ * assert.strictEqual(form.getError(), 'Invalid email');
+ */
+```
+
+```javascript
+// ✅ Semantic and declarative
+await modal.close();
+await form.fillIn('email', 'test@example.com');
+assert.true(dropdown.isOpen());
+
+// ❌ Exposes implementation
+await click('.modal-close-button');
+await fillIn('.form-field[name="email"]', 'test@example.com');
+assert.dom('.dropdown.is-open').exists();
+```
+
+```javascript
+export class FormTestHelper {
+  async fillIn(fieldName, value) {
+    const field = this.container.querySelector(`[data-test-field="${fieldName}"]`);
+    if (!field) {
+      throw new Error(
+        `Field "${fieldName}" not found. Available fields: ${this.getFieldNames().join(', ')}`,
+      );
+    }
+    await fillIn(field, value);
+  }
+
+  getFieldNames() {
+    return Array.from(this.container.querySelectorAll('[data-test-field]')).map(
+      (el) => el.dataset.testField,
+    );
+  }
+}
+```
 
 ```javascript
 // addon/test-support/modal.js
@@ -6513,6 +8194,39 @@ test('it renders', async function (assert) {
 ```
 
 **Correct: direct component render when no args needed**
+
+```javascript
+// tests/integration/components/loading-spinner-test.js
+import { render } from '@ember/test-helpers';
+import LoadingSpinner from 'my-app/components/loading-spinner';
+
+test('it renders', async function (assert) {
+  // ✅ Simple: pass component directly when no args needed
+  await render(LoadingSpinner);
+
+  assert.dom('[data-test-spinner]').exists();
+});
+```
+
+```javascript
+// tests/integration/components/loading-spinner-test.js
+import { module, test } from 'qunit';
+import { setupRenderingTest } from 'ember-qunit';
+import { render } from '@ember/test-helpers';
+import LoadingSpinner from 'my-app/components/loading-spinner';
+
+module('Integration | Component | loading-spinner', function (hooks) {
+  setupRenderingTest(hooks);
+
+  test('it renders without arguments', async function (assert) {
+    // ✅ Simple: pass component directly when no args needed
+    await render(LoadingSpinner);
+
+    assert.dom('[data-test-spinner]').exists();
+    assert.dom('[data-test-spinner]').hasClass('loading');
+  });
+});
+```
 
 ```glimmer-js
 // tests/integration/components/user-card-test.js
@@ -6833,6 +8547,34 @@ module('Integration | Component | search-box', function (hooks) {
 ```
 
 **Testing with ember-concurrency tasks:**
+
+```glimmer-js
+// app/components/async-button.js
+import Component from '@glimmer/component';
+import { task } from 'ember-concurrency';
+
+export default class AsyncButtonComponent extends Component {
+  @task
+  *saveTask() {
+    yield this.args.onSave();
+  }
+
+  <template>
+    <button
+      type="button"
+      disabled={{this.saveTask.isRunning}}
+      {{on "click" (perform this.saveTask)}}
+      data-test-button
+    >
+      {{#if this.saveTask.isRunning}}
+        <span data-test-loading-spinner>Saving...</span>
+      {{else}}
+        {{yield}}
+      {{/if}}
+    </button>
+  </template>
+}
+```
 
 ```glimmer-js
 // tests/integration/components/async-button-test.js
@@ -7181,6 +8923,85 @@ test('class assertions', async function (assert) {
 **Form Elements:**
 
 ```javascript
+test('form assertions', async function (assert) {
+  await render(
+    <template>
+      <form>
+        <input type="text" value="hello" />
+        <input type="checkbox" checked />
+        <input type="radio" disabled />
+        <select>
+          <option selected>Option 1</option>
+        </select>
+      </form>
+    </template>,
+  );
+
+  // Input value
+  assert.dom('input[type="text"]').hasValue('hello');
+
+  // Checkbox/radio state
+  assert.dom('input[type="checkbox"]').isChecked();
+  assert.dom('input[type="checkbox"]').isNotChecked();
+
+  // Disabled state
+  assert.dom('input[type="radio"]').isDisabled();
+  assert.dom('input[type="text"]').isNotDisabled();
+
+  // Required state
+  assert.dom('input').isRequired();
+  assert.dom('input').isNotRequired();
+
+  // Focus state
+  assert.dom('input').isFocused();
+  assert.dom('input').isNotFocused();
+});
+```
+
+```javascript
+test('chained assertions', async function (assert) {
+  await render(<template><Button @variant="primary" @disabled={{false}} /></template>);
+
+  assert.dom('button')
+    .exists()
+    .hasClass('btn-primary')
+    .hasAttribute('type', 'button')
+    .isNotDisabled()
+    .hasText('Submit')
+    .isVisible();
+});
+```
+
+```javascript
+test('custom messages', async function (assert) {
+  await render(<template><UserProfile @user={{this.user}} /></template>);
+
+  assert.dom('[data-test-username]')
+    .hasText(this.user.name, 'username is displayed correctly');
+
+  assert.dom('[data-test-avatar]')
+    .exists('user avatar should be visible');
+});
+```
+
+```javascript
+test('list items', async function (assert) {
+  await render(<template>
+    <TodoList @todos={{this.todos}} />
+  </template>);
+
+  // Exact count
+  assert.dom('[data-test-todo]').exists({ count: 5 });
+
+  // At least one
+  assert.dom('[data-test-todo]').exists({ count: 1 });
+
+  // None
+  assert.dom('[data-test-todo]').doesNotExist();
+});
+```
+
+```javascript
 test('accessibility', async function (assert) {
   await render(<template><Modal @onClose={{this.close}} /></template>);
 
@@ -7326,6 +9147,54 @@ module('Integration | Component | data-loader', function (hooks) {
 **Correct: using test waiters**
 
 ```glimmer-js
+// app/components/data-loader.gjs
+import Component from '@glimmer/component';
+import { tracked } from '@glimmer/tracking';
+import { registerDestructor } from '@ember/destroyable';
+import { buildWaiter } from '@ember/test-waiters';
+
+const waiter = buildWaiter('data-loader');
+
+export class DataLoader extends Component {
+  @tracked data = null;
+  @tracked isLoading = false;
+
+  loadData = async () => {
+    // Register the async operation with test waiter
+    const token = waiter.beginAsync();
+
+    try {
+      this.isLoading = true;
+
+      // Simulate async data loading
+      const response = await fetch('/api/data');
+      this.data = await response.json();
+    } finally {
+      this.isLoading = false;
+      // Always end the async operation, even on error
+      waiter.endAsync(token);
+    }
+  };
+
+  <template>
+    <div>
+      <button {{on "click" this.loadData}} data-test-load-button>
+        Load Data
+      </button>
+
+      {{#if this.isLoading}}
+        <div data-test-loading>Loading...</div>
+      {{/if}}
+
+      {{#if this.data}}
+        <div data-test-data>{{this.data}}</div>
+      {{/if}}
+    </div>
+  </template>
+}
+```
+
+```glimmer-js
 // tests/integration/components/data-loader-test.js
 import { module, test } from 'qunit';
 import { setupRenderingTest } from 'ember-qunit';
@@ -7416,6 +9285,35 @@ export class PollingWidget extends Component {
 ```
 
 **Test waiter with Services:**
+
+```glimmer-js
+// app/services/data-sync.js
+import Service from '@ember/service';
+import { tracked } from '@glimmer/tracking';
+import { buildWaiter } from '@ember/test-waiters';
+
+const waiter = buildWaiter('data-sync-service');
+
+export class DataSyncService extends Service {
+  @tracked isSyncing = false;
+
+  async sync() {
+    const token = waiter.beginAsync();
+
+    try {
+      this.isSyncing = true;
+
+      const response = await fetch('/api/sync', { method: 'POST' });
+      const result = await response.json();
+
+      return result;
+    } finally {
+      this.isSyncing = false;
+      waiter.endAsync(token);
+    }
+  }
+}
+```
 
 ```glimmer-js
 // tests/unit/services/data-sync-test.js
@@ -7555,6 +9453,17 @@ Set up recommended VSCode extensions and Model Context Protocol (MCP) servers fo
 }
 ```
 
+```json
+{
+  "recommendations": [
+    "emberjs.vscode-ember",
+    "vunguyentuan.vscode-glint",
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint"
+  ]
+}
+```
+
 Create a `.vscode/extensions.json` file in your project root to recommend extensions to all team members:
 
 **ember-extension-pack** (or individual extensions):**
@@ -7568,6 +9477,13 @@ Create a `.vscode/extensions.json` file in your project root to recommend extens
 - Code snippets for common Ember patterns
 
 **Glint 2 Extension** (for TypeScript projects):**
+
+```bash
+# Via command palette
+# Press Cmd+Shift+P (Mac) or Ctrl+Shift+P (Windows/Linux)
+# Type: "Extensions: Install Extensions"
+# Search for "Ember" or "Glint"
+```
 
 ```json
 {
@@ -7630,6 +9546,48 @@ Configure MCP servers in `.vscode/settings.json` to integrate AI coding assistan
 - Performance profiling integration
 
 **Playwright MCP** (optional, `@playwright/mcp-server`):**
+
+```json
+{
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+
+  "[glimmer-js]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[glimmer-ts]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+
+  "files.associations": {
+    "*.gjs": "glimmer-js",
+    "*.gts": "glimmer-ts"
+  },
+
+  "glint.enabled": true,
+  "glint.configPath": "./tsconfig.json",
+
+  "github.copilot.enable": {
+    "*": true
+  },
+
+  "mcp.servers": {
+    "ember-mcp": {
+      "command": "npx",
+      "args": ["@ember/mcp-server"],
+      "description": "Ember.js MCP Server"
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["@modelcontextprotocol/server-chrome-devtools"],
+      "description": "Chrome DevTools MCP Server"
+    }
+  }
+}
+```
 
 ```json
 {
@@ -8185,6 +10143,35 @@ class PostCard extends Component {
 
 **Correct: reusable helper**
 
+```glimmer-js
+// app/components/post-list.gjs
+import Component from '@glimmer/component';
+
+// Helper co-located in same file
+function formatRelativeDate(date) {
+  const dateObj = new Date(date);
+  const now = new Date();
+  const diffMs = now - dateObj;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return dateObj.toLocaleDateString();
+}
+
+class PostList extends Component {
+  <template>
+    {{#each @posts as |post|}}
+      <article>
+        <h2>{{post.title}}</h2>
+        <time>{{formatRelativeDate post.createdAt}}</time>
+      </article>
+    {{/each}}
+  </template>
+}
+```
+
 ```javascript
 // app/components/blog/format-relative-date.js
 export function formatRelativeDate(date) {
@@ -8205,6 +10192,31 @@ For single-use helpers, keep them in the same file as the component:
 For helpers shared across multiple components in a feature, use a subdirectory:
 
 **Alternative: shared helper in utils**
+
+```javascript
+// app/utils/format-relative-date.js
+// Flat structure - use subpath-imports in package.json for nicer imports if needed
+export function formatRelativeDate(date) {
+  const dateObj = new Date(date);
+  const now = new Date();
+  const diffMs = now - dateObj;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays} days ago`;
+  return dateObj.toLocaleDateString();
+}
+```
+
+```glimmer-js
+// app/components/user-card.gjs
+import { formatRelativeDate } from '../utils/format-relative-date';
+
+<template>
+  <p>Joined: {{formatRelativeDate @user.createdAt}}</p>
+</template>
+```
 
 ```glimmer-js
 // app/components/post-card.gjs
@@ -8304,6 +10316,30 @@ export default modifier((element, [config]) => {
 
 **Also correct: class-based modifier for complex state**
 
+```javascript
+// app/modifiers/chart.js
+import Modifier from 'ember-modifier';
+import { registerDestructor } from '@ember/destroyable';
+
+export default class ChartModifier extends Modifier {
+  chartInstance = null;
+
+  modify(element, [config]) {
+    // Cleanup previous instance if config changed
+    if (this.chartInstance) {
+      this.chartInstance.destroy();
+    }
+
+    this.chartInstance = new Chart(element, config);
+
+    // Register cleanup
+    registerDestructor(this, () => {
+      this.chartInstance?.destroy();
+    });
+  }
+}
+```
+
 ```glimmer-js
 // app/components/chart.gjs
 import chart from '../modifiers/chart';
@@ -8317,6 +10353,15 @@ import chart from '../modifiers/chart';
 
 **For commonly needed modifiers, use ember-modifier helpers:**
 
+```javascript
+// app/modifiers/autofocus.js
+import { modifier } from 'ember-modifier';
+
+export default modifier((element) => {
+  element.focus();
+});
+```
+
 ```glimmer-js
 // app/components/input-field.gjs
 import autofocus from '../modifiers/autofocus';
@@ -8325,6 +10370,10 @@ import autofocus from '../modifiers/autofocus';
 ```
 
 **Use ember-resize-observer-modifier for resize handling:**
+
+```bash
+ember install ember-resize-observer-modifier
+```
 
 ```glimmer-js
 // app/components/resizable.gjs
@@ -8394,6 +10443,76 @@ export default class TodoList extends Component {
 ```
 
 **Correct: reactive array with @ember/reactive/collections**
+
+```glimmer-js
+// app/components/todo-list.gjs
+import Component from '@glimmer/component';
+import { action } from '@ember/object';
+import { trackedArray } from '@ember/reactive/collections';
+
+export default class TodoList extends Component {
+  todos = trackedArray([]); // ✅ Mutations are reactive
+
+  @action
+  addTodo(text) {
+    // Now this triggers re-render!
+    this.todos.push({ id: Date.now(), text });
+  }
+
+  @action
+  removeTodo(id) {
+    // This also triggers re-render!
+    const index = this.todos.findIndex((t) => t.id === id);
+    this.todos.splice(index, 1);
+  }
+
+  <template>
+    <ul>
+      {{#each this.todos as |todo|}}
+        <li>
+          {{todo.text}}
+          <button {{on "click" (fn this.removeTodo todo.id)}}>Remove</button>
+        </li>
+      {{/each}}
+    </ul>
+    <button {{on "click" (fn this.addTodo "New todo")}}>Add</button>
+  </template>
+}
+```
+
+```glimmer-js
+// app/components/user-cache.gjs
+import Component from '@glimmer/component';
+import { action } from '@ember/object';
+import { trackedMap } from '@ember/reactive/collections';
+
+export default class UserCache extends Component {
+  userCache = trackedMap(); // key: userId, value: userData
+
+  @action
+  cacheUser(userId, userData) {
+    this.userCache.set(userId, userData);
+  }
+
+  @action
+  clearUser(userId) {
+    this.userCache.delete(userId);
+  }
+
+  get cachedUsers() {
+    return Array.from(this.userCache.values());
+  }
+
+  <template>
+    <ul>
+      {{#each this.cachedUsers as |user|}}
+        <li>{{user.name}}</li>
+      {{/each}}
+    </ul>
+    <p>Cache size: {{this.userCache.size}}</p>
+  </template>
+}
+```
 
 ```glimmer-js
 // app/components/tag-selector.gjs
@@ -8485,6 +10604,16 @@ const plainArray3 = [...trackedSet];
 ```
 
 **Functional array methods still work:**
+
+```javascript
+const todos = trackedArray([...]);
+
+// All of these work and are reactive
+const completed = todos.filter(t => t.done);
+const titles = todos.map(t => t.title);
+const allDone = todos.every(t => t.done);
+const firstIncomplete = todos.find(t => !t.done);
+```
 
 ```javascript
 import { tracked } from '@glimmer/tracking';

@@ -91,10 +91,16 @@ function generateMarkdown(
         } else {
           md += `**${example.label}:**\n\n`;
         }
-        // Only generate code block if there's actual code
-        if (example.code && example.code.trim()) {
-          md += `\`\`\`${example.language || 'typescript'}\n`;
-          md += `${example.code}\n`;
+        const codeBlocks =
+          example.codeBlocks && example.codeBlocks.length > 0
+            ? example.codeBlocks
+            : example.code && example.code.trim()
+              ? [{ code: example.code, language: example.language || 'typescript' }]
+              : [];
+
+        for (const block of codeBlocks) {
+          md += `\`\`\`${block.language || 'typescript'}\n`;
+          md += `${block.code}\n`;
           md += `\`\`\`\n\n`;
         }
         if (example.additionalText) {
