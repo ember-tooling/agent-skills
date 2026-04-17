@@ -8,7 +8,9 @@
   },
   "scripts": {
     "format": "prettier --write .",
-    "lint:format": "prettier --check ."
+    "lint:format": "prettier --check .",
+    "validate": "pnpm --filter ./packages/ember-best-practices-build validate",
+    "build": "pnpm --filter ./packages/ember-best-practices-build build"
   },
   "devDependencies": {
     "prettier": "^3.8.1",
