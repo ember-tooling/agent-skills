@@ -252,18 +252,19 @@ class FilteredList extends Component {
     return this.searchTerm || this.selectedCategory !== 'all';
   }
 
+  updateSearchTerm = (event) => {
+    this.searchTerm = event.target.value;
+  };
+
+  updateCategory = (event) => {
+    this.selectedCategory = event.target.value;
+  };
+
   <template>
     <div class="filtered-list">
-      <input
-        type="search"
-        value={{this.searchTerm}}
-        {{on "input" (pick "target.value" (set this "searchTerm"))}}
-      />
+      <input type="search" value={{this.searchTerm}} {{on "input" this.updateSearchTerm}} />
 
-      <select
-        value={{this.selectedCategory}}
-        {{on "change" (pick "target.value" (set this "selectedCategory"))}}
-      >
+      <select value={{this.selectedCategory}} {{on "change" this.updateCategory}}>
         <option value="all">All Categories</option>
         {{#each @categories as |cat|}}
           <option value={{cat}}>{{cat}}</option>

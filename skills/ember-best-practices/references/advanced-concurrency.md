@@ -73,8 +73,10 @@ class Search extends Component {
     return response.json(); // Return, don't set @tracked
   });
 
+  search = (event) => this.searchTask.perform(event.target.value);
+
   <template>
-    <input {{on "input" (fn this.searchTask.perform (pick "target.value"))}} />
+    <input {{on "input" this.search}} />
 
     {{#if this.searchTask.isRunning}}
       <div class="loading">Loading...</div>
@@ -111,12 +113,10 @@ class Autocomplete extends Component {
     return response.json(); // Return value, don't set tracked state
   });
 
+  search = (event) => this.searchTask.perform(event.target.value);
+
   <template>
-    <input
-      type="search"
-      {{on "input" (fn this.searchTask.perform (pick "target.value"))}}
-      placeholder="Search..."
-    />
+    <input type="search" {{on "input" this.search}} placeholder="Search..." />
 
     {{#if this.searchTask.isRunning}}
       <div class="spinner"></div>

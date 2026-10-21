@@ -82,7 +82,6 @@ class UserProfile extends Component {
 import Component from '@glimmer/component';
 import { restartableTask, timeout } from 'ember-concurrency';
 import { on } from '@ember/modifier';
-import { pick } from 'ember-composable-helpers';
 
 class Search extends Component {
   // CORRECT: For user-initiated search with debouncing
@@ -93,8 +92,10 @@ class Search extends Component {
     return response.json(); // Return value, don't set tracked state
   });
 
+  search = (event) => this.searchTask.perform(event.target.value);
+
   <template>
-    <input type="search" {{on "input" (fn this.searchTask.perform (pick "target.value"))}} />
+    <input type="search" {{on "input" this.search}} />
 
     {{! Use derived data from task state - no tracked properties needed }}
     {{#if this.searchTask.isRunning}}

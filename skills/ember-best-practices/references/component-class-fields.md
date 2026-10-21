@@ -135,6 +135,8 @@ class FormContainer extends Component {
     this.validate(field, value);
   };
 
+  updateFirstName = (event) => this.updateField('firstName', event.target.value);
+
   validate(field, value) {
     if (field === 'email' && !value.includes('@')) {
       this.errors.email = 'Invalid email';
@@ -145,10 +147,7 @@ class FormContainer extends Component {
 
   <template>
     <form>
-      <input
-        value={{this.formData.firstName}}
-        {{on "input" (pick "target.value" (fn this.updateField "firstName"))}}
-      />
+      <input value={{this.formData.firstName}} {{on "input" this.updateFirstName}} />
 
       <button disabled={{not this.canSubmit}}>
         Submit
