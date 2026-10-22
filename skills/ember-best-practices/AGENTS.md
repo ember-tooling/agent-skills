@@ -41,16 +41,17 @@ Comprehensive performance optimization and accessibility guide for Ember.js appl
    - 3.8 [Keep App State on Classes, Not in Standalone tracked() Values](#38-keep-app-state-on-classes-not-in-standalone-tracked-values)
    - 3.9 [Prefer Named Exports, Fallback to Default for Implicit Template Lookup](#39-prefer-named-exports-fallback-to-default-for-implicit-template-lookup)
    - 3.10 [Prevent Memory Leaks in Components](#310-prevent-memory-leaks-in-components)
-   - 3.11 [Use {{on}} Modifier for Event Handling](#311-use-on-modifier-for-event-handling)
-   - 3.12 [Use @cached for Expensive Getters](#312-use-cached-for-expensive-getters)
-   - 3.13 [Use Class Fields for Component Composition](#313-use-class-fields-for-component-composition)
-   - 3.14 [Use Component Composition Patterns](#314-use-component-composition-patterns)
-   - 3.15 [Use Glimmer Components Over Classic Components](#315-use-glimmer-components-over-classic-components)
-   - 3.16 [Use Native Forms with Platform Validation](#316-use-native-forms-with-platform-validation)
-   - 3.17 [Use Strict Mode and Template-Only Components](#317-use-strict-mode-and-template-only-components)
-   - 3.18 [Use Tracked Collections for Complex State](#318-use-tracked-collections-for-complex-state)
-   - 3.19 [Validate Component Arguments](#319-validate-component-arguments)
-   - 3.20 [Write Precise Signatures for Components, Helpers and Modifiers](#320-write-precise-signatures-for-components-helpers-and-modifiers)
+   - 3.11 [Spread ...attributes on the Right Element, in the Right Position](#311-spread-attributes-on-the-right-element-in-the-right-position)
+   - 3.12 [Use {{on}} Modifier for Event Handling](#312-use-on-modifier-for-event-handling)
+   - 3.13 [Use @cached for Expensive Getters](#313-use-cached-for-expensive-getters)
+   - 3.14 [Use Class Fields for Component Composition](#314-use-class-fields-for-component-composition)
+   - 3.15 [Use Component Composition Patterns](#315-use-component-composition-patterns)
+   - 3.16 [Use Glimmer Components Over Classic Components](#316-use-glimmer-components-over-classic-components)
+   - 3.17 [Use Native Forms with Platform Validation](#317-use-native-forms-with-platform-validation)
+   - 3.18 [Use Strict Mode and Template-Only Components](#318-use-strict-mode-and-template-only-components)
+   - 3.19 [Use Tracked Collections for Complex State](#319-use-tracked-collections-for-complex-state)
+   - 3.20 [Validate Component Arguments](#320-validate-component-arguments)
+   - 3.21 [Write Precise Signatures for Components, Helpers and Modifiers](#321-write-precise-signatures-for-components-helpers-and-modifiers)
 4. [Accessibility Best Practices](#4-accessibility-best-practices) — **HIGH**
    - 4.1 [Announce Route Transitions to Screen Readers](#41-announce-route-transitions-to-screen-readers)
    - 4.2 [Form Labels and Error Announcements](#42-form-labels-and-error-announcements)
@@ -2545,7 +2546,82 @@ Always clean up timers, event listeners, subscriptions, and pending requests to 
 
 Reference: [Ember Destroyable](https://api.emberjs.com/ember/release/modules/@ember%2Fdestroyable)
 
-### 3.11 Use {{on}} Modifier for Event Handling
+### 3.11 Spread ...attributes on the Right Element, in the Right Position
+
+**Impact: MEDIUM (Callers' attributes and modifiers reach the right element, and none are silently dropped)**
+
+`...attributes` forwards everything a caller writes on a component that isn't an argument (`class`, `name`, `aria-*`, `data-*`, and modifiers such as `{{on}}`) to the element it's placed on. Put it on the element those are meant for, which isn't always the root. In a field that renders a label, an input and a hint, that's the `<input>`: on the wrapper, `name`, `autocomplete` and `aria-describedby` do nothing. If callers also need to style the wrapper, take its class as an argument.
+
+Where `...attributes` sits among the element's own attributes decides which value wins:
+
+- **Before `...attributes`:** a default the caller can override.
+
+- **After it:** the component's value wins, and an empty value (`undefined`, `null` or `false`) removes the caller's attribute.
+
+`class` is merged either way. As the Ember Guides advise, most attributes go before `...attributes`. Put after it only what the component must control, such as the `id` its `<label for>` points at, or the `value` it takes as `@value`. Anything a caller may also set goes before it, above all an attribute the component sets only sometimes, such as an `aria-describedby` for an optional hint.
+
+**Incorrect: attributes land on the wrapper**
+
+```glimmer-js
+// app/components/text-field.gjs
+import Component from '@glimmer/component';
+import { guidFor } from '@ember/object/internals';
+
+export class TextField extends Component {
+  id = guidFor(this);
+
+  <template>
+    <div class="text-field" ...attributes>
+      <label for={{this.id}}>{{@label}}</label>
+      <input id={{this.id}} value={{@value}} />
+    </div>
+  </template>
+}
+```
+
+`<TextField @label="Email" name="email" autocomplete="email" />` puts `name` and `autocomplete` on the `<div>`, where they do nothing: the form doesn't submit the field, and the browser gets no autofill hint.
+
+**Incorrect: an attribute the component sets only sometimes comes after `...attributes`**
+
+```handlebars
+<input ...attributes id={{this.id}} aria-describedby={{if @hint this.hintId}} value={{@value}} />
+```
+
+Without `@hint`, `aria-describedby` is `undefined` after `...attributes`, so a caller's `aria-describedby` is removed.
+
+**Correct: on the `<input>`, with only what the component controls after `...attributes`**
+
+```glimmer-js
+// app/components/text-field.gjs
+import Component from '@glimmer/component';
+import { guidFor } from '@ember/object/internals';
+
+export class TextField extends Component {
+  id = guidFor(this);
+  hintId = `${this.id}-hint`;
+
+  <template>
+    <div class="text-field {{@wrapperClass}}">
+      <label for={{this.id}}>{{@label}}</label>
+      <input
+        aria-describedby={{if @hint this.hintId}}
+        ...attributes
+        id={{this.id}}
+        value={{@value}}
+      />
+      {{#if @hint}}
+        <p id={{this.hintId}}>{{@hint}}</p>
+      {{/if}}
+    </div>
+  </template>
+}
+```
+
+`name`, `autocomplete` and `{{on "input"}}` now reach the `<input>`, and an `id` attribute can't separate it from its label. A caller's `aria-describedby` is kept when there's no hint, and overrides the hint's when there is one.
+
+Reference: [Ember Guides: Component Arguments and HTML Attributes](https://guides.emberjs.com/release/components/component-arguments-and-html-attributes/)
+
+### 3.12 Use {{on}} Modifier for Event Handling
 
 **Impact: MEDIUM (Better memory management and clarity)**
 
@@ -2667,7 +2743,7 @@ The `{{on}}` modifier properly cleans up event listeners, supports event options
 
 Reference: [Ember Modifiers - on](https://guides.emberjs.com/release/components/template-lifecycle-dom-and-modifiers/#toc_event-handlers)
 
-### 3.12 Use @cached for Expensive Getters
+### 3.13 Use @cached for Expensive Getters
 
 **Impact: HIGH (50-90% reduction in recomputation)**
 
@@ -2716,7 +2792,7 @@ class DataTable extends Component {
 
 Reference: [@cached decorator](https://guides.emberjs.com/release/in-depth-topics/autotracking-in-depth/#toc_caching)
 
-### 3.13 Use Class Fields for Component Composition
+### 3.14 Use Class Fields for Component Composition
 
 **Impact: MEDIUM-HIGH (Better composition and initialization patterns)**
 
@@ -3036,7 +3112,7 @@ Class fields provide clean composition patterns, better initialization, and shar
 
 Reference: [JavaScript Class Fields](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes/Public_class_fields)
 
-### 3.14 Use Component Composition Patterns
+### 3.15 Use Component Composition Patterns
 
 **Impact: HIGH (Better code reuse and maintainability)**
 
@@ -3270,7 +3346,7 @@ Component composition provides flexibility, reusability, and clean separation of
 
 Reference: [Ember Components - Block Parameters](https://guides.emberjs.com/release/components/block-content/)
 
-### 3.15 Use Glimmer Components Over Classic Components
+### 3.16 Use Glimmer Components Over Classic Components
 
 **Impact: HIGH (30-50% faster rendering)**
 
@@ -3322,7 +3398,7 @@ Glimmer components are 30-50% faster, have cleaner APIs, and integrate better wi
 
 Reference: [Glimmer Components](https://guides.emberjs.com/release/components/component-state-and-actions/)
 
-### 3.16 Use Native Forms with Platform Validation
+### 3.17 Use Native Forms with Platform Validation
 
 **Impact: HIGH (Reduces JavaScript form complexity and improves built-in a11y)**
 
@@ -3644,7 +3720,7 @@ Use controlled patterns when you need real-time interactivity that isn't form su
 
 - [Ember Guides: Event Handling](https://guides.emberjs.com/release/components/component-state-and-actions/)
 
-### 3.17 Use Strict Mode and Template-Only Components
+### 3.18 Use Strict Mode and Template-Only Components
 
 **Impact: HIGH (Better type safety and simpler components)**
 
@@ -3726,7 +3802,7 @@ Template-only components are lighter, more performant, and easier to understand.
 
 Reference: [Ember Strict Mode](https://guides.emberjs.com/release/upgrading/current-edition/templates/)
 
-### 3.18 Use Tracked Collections for Complex State
+### 3.19 Use Tracked Collections for Complex State
 
 **Impact: HIGH (Cleaner state management)**
 
@@ -3790,7 +3866,7 @@ Tracked collections provide fine-grained reactivity and better performance than 
 
 Reference: [RFC #1068: Tracked Collections](https://rfcs.emberjs.com/id/1068-tracked-collections/)
 
-### 3.19 Validate Component Arguments
+### 3.20 Validate Component Arguments
 
 **Impact: MEDIUM (Better error messages and type safety)**
 
@@ -3960,7 +4036,7 @@ Argument validation provides better error messages during development, serves as
 
 Reference: [TypeScript in Ember](https://guides.emberjs.com/release/typescript/)
 
-### 3.20 Write Precise Signatures for Components, Helpers and Modifiers
+### 3.21 Write Precise Signatures for Components, Helpers and Modifiers
 
 **Impact: MEDIUM (Type-checked invocations and accurate editor completions)**
 

@@ -68,6 +68,7 @@ Reference these guidelines when:
 - [component-on-modifier](references/component-on-modifier.md) - Use {{on}} modifier for event handling
 - [component-args-validation](references/component-args-validation.md) - Validate component arguments
 - [component-signatures](references/component-signatures.md) - Write precise signatures for components, helpers and modifiers
+- [component-splattributes](references/component-splattributes.md) - Spread ...attributes on the right element, in the right position
 - [component-memory-leaks](references/component-memory-leaks.md) - Prevent memory leaks in components
 - [component-strict-mode](references/component-strict-mode.md) - Use strict mode and template-only components
 - [component-avoid-classes-in-examples](references/component-avoid-classes-in-examples.md) - Avoid unnecessary classes in component examples
